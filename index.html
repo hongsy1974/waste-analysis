@@ -24,7 +24,6 @@ input:focus,select:focus{outline:none}
 .clear-btn:hover{color:#5B616A!important}
 .ghost-btn:hover{background:#F5F6F8}
 .danger-btn:hover{background:#FCEAEA}
-.apply-all-btn:hover{background:#FDEEE6}
 .month-nav-btn:hover{background:#F5F6F8}
 .remove-dept:hover{color:#E5484D!important}
 .alloc-row:hover td{background:#FCFCFD}
@@ -451,14 +450,6 @@ function App(){
     if(newTypes.length){
       updatedTypes=[...typesRef.current,...newTypes];
       setTypes(updatedTypes);
-      // Extend existing matrices with new type rows (all zeros)
-      setMatrixByMonth(p=>{
-        const o={};
-        Object.keys(p).forEach(m=>{
-          o[m]=[...p[m],...Array.from({length:newTypes.length},()=>new Array(deptsRef.current.length).fill(0))];
-        });
-        return o;
-      });
     }
     if(newCompanies.length){
       updatedCompanies=[...companiesRef.current,...newCompanies];
@@ -480,11 +471,30 @@ function App(){
     await fsSaveMonth(ym,tcd,rows,at);
     await fsSaveSettings(deptsRef.current,presetsRef.current,updatedTypes,updatedCompanies);
 
-    // Create default allocation for this month if none exists
-    if(!matrixRef.current[ym]){
-      const matrix=defaultMatrix(updatedTypes.length,deptsRef.current.length);
-      setMatrixByMonth(p=>({...p,[ym]:matrix}));
-      await fsSaveAlloc(ym,matrix);
+    // After awaits, matrixRef.current reflects latest state.
+    // For each loaded month: create default if missing, extend rows if new types were added.
+    // Never overwrite a month that already has a complete matrix.
+    {
+      const numTypes=updatedTypes.length;
+      const numDepts=deptsRef.current.length;
+      const curMat=matrixRef.current;
+      const updates={};
+      loadedRef.current.forEach(m=>{
+        const ex=curMat[m];
+        if(!ex||!ex.length){
+          updates[m]=defaultMatrix(numTypes,numDepts);
+        }else if(ex.length<numTypes){
+          const diff=numTypes-ex.length;
+          updates[m]=[
+            ...ex.map(r=>{const row=r.slice(0,numDepts);while(row.length<numDepts)row.push(0);return row;}),
+            ...Array.from({length:diff},()=>new Array(numDepts).fill(0))
+          ];
+        }
+      });
+      if(Object.keys(updates).length){
+        setMatrixByMonth(p=>({...p,...updates}));
+        await Promise.all(Object.keys(updates).map(m=>fsSaveAlloc(m,updates[m])));
+      }
     }
 
     setSelectedFile(null);
@@ -523,13 +533,6 @@ function App(){
     await fsSaveAlloc(allocMonth,matrix);
   },[allocMonth]);
 
-  const applyAll=async()=>{
-    const src=(matrixByMonth[allocMonth]||defaultMatrix(types.length,depts.length)).map(r=>r.slice());
-    const lo=loadedRef.current;
-    const newMat={};lo.forEach(ym=>{newMat[ym]=src.map(r=>r.slice());});
-    setMatrixByMonth(newMat);
-    await Promise.all(lo.map(ym=>fsSaveAlloc(ym,newMat[ym])));
-  };
 
   const resetMatrix=async()=>{
     const matrix=defaultMatrix(types.length,depts.length);
@@ -965,7 +968,6 @@ function App(){
                         {invalid===0?'✓ 전체 100% 정합':invalid+'개 행 합계 오류'}
                       </div>
                       <div style={{fontSize:'12px',color:'#6B717A',lineHeight:1.5}}>선택한 월의 <b style={{color:'#3B4048'}}>종류(행)별 합계가 100%</b>여야 합니다 · <b style={{color:'#3B4048'}}>전체 {loadedSorted.length}개월 중 {okMonths}개월 100% 정합</b></div>
-                      <div onClick={applyAll} className="apply-all-btn" style={{marginLeft:'auto',fontSize:'12px',fontWeight:700,color:ACCENT,border:`1px solid ${ACCENT}`,borderRadius:'8px',padding:'8px 13px',cursor:'pointer',whiteSpace:'nowrap'}}>현재 비율 전체 월 적용</div>
                     </div>
                     <div style={{display:'flex',gap:'9px',alignItems:'center',background:'#fff',border:'1px solid #E8EAED',borderRadius:'14px',padding:'12px 16px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
                       <span style={{fontSize:'11.5px',color:'#9CA1A8',fontWeight:700}}>프리셋</span>
