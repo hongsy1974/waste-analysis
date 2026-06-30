@@ -698,9 +698,26 @@ function App(){
   },[periodIdx,activeTypeIdx,loaded,selCompanies,selDepts,depts,matrixByMonth,monthData,types,companies,sumMi]);
 
   // ---- Alloc derived ----
+  // Only show types that actually appear in the selected month's uploaded data
+  const allocMonthTypeIndices=useMemo(()=>{
+    if(!allocMonth)return[];
+    const present=new Set(Object.keys(monthData[allocMonth]?.typeCompanyData||{}));
+    return types.map((_,i)=>i).filter(i=>present.has(types[i]?.name));
+  },[allocMonth,monthData,types]);
+
   const curMatrix=allocMonth?(matrixByMonth[allocMonth]||defaultMatrix(types.length,depts.length)):defaultMatrix(types.length,depts.length);
-  const okMonths=useMemo(()=>loadedSorted.filter(ym=>{const mat=matrixByMonth[ym]||defaultMatrix(types.length,depts.length);return mat.length>0&&mat.every(r=>Math.round(r.reduce((a,b)=>a+(+b||0),0))===100);}).length,[loadedSorted,matrixByMonth,types,depts]);
-  const allocRows=curMatrix.map((row,i)=>{
+
+  // okMonths: a month is valid when all of its own types sum to 100%
+  const okMonths=useMemo(()=>loadedSorted.filter(ym=>{
+    const present=new Set(Object.keys(monthData[ym]?.typeCompanyData||{}));
+    const idxs=types.map((_,i)=>i).filter(i=>present.has(types[i]?.name));
+    if(!idxs.length)return false;
+    const mat=matrixByMonth[ym]||defaultMatrix(types.length,depts.length);
+    return idxs.every(i=>Math.round((mat[i]||[]).reduce((a,b)=>a+(+b||0),0))===100);
+  }).length,[loadedSorted,matrixByMonth,types,depts,monthData]);
+
+  const allocRows=allocMonthTypeIndices.map(i=>{
+    const row=curMatrix[i]||new Array(depts.length).fill(0);
     const type=types[i]||{name:`폐기물 ${i+1}`,cat:'일반'};
     const tot=row.reduce((a,b)=>a+(+b||0),0),ok=Math.round(tot)===100;
     return{i,type:type.name,cat:type.cat,tagStyle:tagStyle(type.cat),cells:row.map((v,j)=>({i,j,v})),totalLabel:Math.round(tot)+'%',
