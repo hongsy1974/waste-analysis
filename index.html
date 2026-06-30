@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>폐기물 실적 분석</title>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body,#root{height:100%;margin:0}
+body{font-family:'Pretendard',system-ui,-apple-system,sans-serif;color:#1B1E24;-webkit-font-smoothing:antialiased;background:#F5F6F8}
+input[type=number]{-moz-appearance:textfield}
+input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input:focus,select:focus{outline:none}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:#D3D7DC;border-radius:7px;border:3px solid #F5F6F8}
+::-webkit-scrollbar-thumb:hover{background:#BEC3C9}
+.filter-opt:hover{background:#F5F6F8}
+.nav-item:hover{background:rgba(255,255,255,.06)}
+.clear-btn:hover{color:#5B616A!important}
+.ghost-btn:hover{background:#F5F6F8}
+.danger-btn:hover{background:#FCEAEA}
+.apply-all-btn:hover{background:#FDEEE6}
+.month-nav-btn:hover{background:#F5F6F8}
+.remove-dept:hover{color:#E5484D!important}
+.alloc-row:hover td{background:#FCFCFD}
+.alloc-row:hover td:first-child{background:#FCFCFD!important}
+.hist-row:hover td{background:#FCFCFD}
+.cell-input:focus{border-color:#F37021!important;background:#fff!important}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Firebase -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+const app = initializeApp({
+  apiKey: "AIzaSyBwYF6JeG1UyTpFCY7oUarQpLEh_rxzEeU",
+  authDomain: "waste-57e8e.firebaseapp.com",
+  projectId: "waste-57e8e",
+  storageBucket: "waste-57e8e.firebasestorage.app",
+  messagingSenderId: "919608111445",
+  appId: "1:919608111445:web:f39e6ad1a002deae90ffdc"
+});
+
+window.__db = getFirestore(app);
+window.__fs = { collection, doc, getDocs, getDoc, setDoc, deleteDoc };
+window.__firebaseReady = true;
+window.dispatchEvent(new Event('firebase-ready'));
+</script>
+
+<script type="text/babel">
+const { useState, useMemo, useCallback, useRef, useEffect } = React;
+
+const ACCENT = '#F37021';
+const PAL = [ACCENT, '#3A7BD5', '#1F8A5B', '#9B59B6', '#E67E22', '#16A085', '#C0392B', '#2980B9'];
+
+const INIT_DEPTS = ['PE생산팀','VCM생산팀','품질보증팀','정비팀','물류팀','총무팀'];
+const PLACEHOLDER = {
+  dept:{title:'부서별 발생 분석',desc:'입력한 배분 비율을 적용해 산출된 부서별 위탁량/비율을 종류별·합계로 표시하고 부서 간 비교 차트를 제공합니다.'},
+  type:{title:'폐기물 종류별 분석',desc:'종류별 위탁량·비중, 처리업체 분포, 기간 추이를 보여주고 지정/일반 등 분류로 그룹핑합니다.'},
+  company:{title:'업체별 분석',desc:'처리업체별 위탁량·비중을 표와 차트로 분석하고, 폐기물 종류 2차 필터와 전월/전년 동월 비교를 제공합니다.'},
+  report:{title:'리포트 / 내보내기',desc:'현재 필터 결과를 엑셀/PDF로 내보내고, 월간 보고용 표준 템플릿(요약+업체별+종류별+부서별)을 일괄 출력합니다.'}
+};
+
+function buildMonths(){const o=[];[2024,2025,2026,2027].forEach(y=>{for(let m=1;m<=12;m++)o.push({ym:`${y}-${String(m).padStart(2,'0')}`,y,mo:m});});return o;}
+const MONTHS = buildMonths();
+
+function defaultMatrix(numTypes,numCols){return Array.from({length:numTypes},()=>new Array(numCols).fill(0));}
+function atFor(ym){const[y,mo]=ym.split('-').map(Number);const ny=mo===12?y+1:y,nm=mo===12?1:mo+1;return`${ny}-${String(nm).padStart(2,'0')}-05`;}
+function clampYm(loaded,ym){if(!loaded.length)return ym;const mn=loaded[0],mx=loaded[loaded.length-1];return ym<mn?mn:ym>mx?mx:ym;}
+function fmt(n){return Number(n).toLocaleString('ko-KR',{minimumFractionDigits:1,maximumFractionDigits:1});}
+function fmtK(n){return Number(n).toLocaleString('ko-KR');}
+function tagStyle(cat){return cat==='지정'?{background:'#FDEEE6',color:ACCENT,borderRadius:'5px',padding:'1px 7px',fontSize:'10px',fontWeight:700}:{background:'#EEF1F4',color:'#7C828A',borderRadius:'5px',padding:'1px 7px',fontSize:'10px',fontWeight:700};}
+
+// ---- Excel parsing ----
+function findCol(headers,candidates){
+  for(const c of candidates){
+    const i=headers.findIndex(h=>String(h).replace(/\s/g,'').includes(c));
+    if(i>=0)return i;
+  }
+  return -1;
+}
+
+function guessCategory(typeName){
+  const d=['폐유','폐산','알칼리','유기용제','석면','폐농약','의료','폐페인트','폐합성고분자','폐촉매','폐흡착제','PCB','할로겐','폐수은','폐카드뮴'];
+  return d.some(k=>typeName.includes(k))?'지정':'일반';
+}
+
+async function parseExcel(file){
+  const ab=await file.arrayBuffer();
+  const wb=XLSX.read(ab,{type:'array',cellDates:true});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const allRows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+
+  // Find header row (search first 20 rows for key column names)
+  let headerIdx=-1;
+  for(let i=0;i<Math.min(allRows.length,20);i++){
+    const joined=allRows[i].map(c=>String(c)).join('');
+    if(joined.includes('처리자업체명')||joined.includes('위탁량')||joined.includes('처리업체명')){
+      headerIdx=i;break;
+    }
+  }
+  if(headerIdx<0)throw new Error('헤더를 찾을 수 없습니다.\n처리자업체명 또는 위탁량 열이 필요합니다.');
+
+  const headers=allRows[headerIdx].map(h=>String(h).trim());
+
+  const iDate=findCol(headers,['배출자인계일자','인계일자','처리일자','위탁일자','처리완료일자','완료일자']);
+  const iType=findCol(headers,['폐기물명','폐기물종류명','폐기물종류','품목명','종류명']);
+  const iCompany=findCol(headers,['처리자업체명','처리업체명','업체명','처리자명']);
+  const iQty=findCol(headers,['위탁량','수량','처리량','중량','위탁중량','발생량']);
+  const iCat=findCol(headers,['지정폐기물여부','폐기물분류','분류구분','지정여부','구분']);
+
+  if(iCompany<0)throw new Error('처리자업체명 열을 찾을 수 없습니다.');
+  if(iQty<0)throw new Error('위탁량 열을 찾을 수 없습니다.');
+
+  const dataRows=allRows.slice(headerIdx+1).filter(r=>r.some(c=>String(c).trim()!==''));
+
+  // Detect month from 배출자인계일자
+  const monthCounts={};
+  if(iDate>=0){
+    dataRows.forEach(r=>{
+      const d=String(r[iDate]||'');
+      const m=d.match(/(\d{4})[.\-\/년\s](\d{1,2})/);
+      if(m){const key=`${m[1]}-${String(m[2]).padStart(2,'0')}`;monthCounts[key]=(monthCounts[key]||0)+1;}
+    });
+  }
+  const sortedMonths=Object.entries(monthCounts).sort((a,b)=>b[1]-a[1]);
+  const detectedYm=sortedMonths.length?sortedMonths[0][0]:null;
+  const multipleMonths=sortedMonths.length>1;
+
+  // Aggregate: typeCompanyData[typeName][companyName] = tonnage
+  const typeCompanyData={};
+  const typeCategories={};
+
+  dataRows.forEach(r=>{
+    const company=String(r[iCompany]||'').trim();
+    if(!company)return;
+    const qtyStr=String(r[iQty]||'0').replace(/,/g,'').replace(/[^\d.]/g,'');
+    const qty=parseFloat(qtyStr)||0;
+    if(qty<=0)return;
+    const typeName=iType>=0?String(r[iType]||'').trim():'기타';
+    if(!typeName)return;
+    const cat=iCat>=0?(String(r[iCat]||'').includes('지정')?'지정':'일반'):guessCategory(typeName);
+
+    if(!typeCompanyData[typeName])typeCompanyData[typeName]={};
+    typeCompanyData[typeName][company]=(typeCompanyData[typeName][company]||0)+qty;
+    if(!typeCategories[typeName])typeCategories[typeName]=cat;
+  });
+
+  const allQtys=Object.values(typeCompanyData).flatMap(cd=>Object.values(cd));
+  const total=allQtys.reduce((s,v)=>s+v,0);
+
+  return{detectedYm,multipleMonths,typeCompanyData,typeCategories,rows:dataRows.length,total};
+}
+
+// ---- Firestore helpers ----
+const DB=()=>window.__db;
+const FS=()=>window.__fs;
+
+async function fsLoad(){
+  const{collection,doc,getDocs,getDoc}=FS(),db=DB();
+  const[mSnap,aSnap,sSnap]=await Promise.all([
+    getDocs(collection(db,'months')),
+    getDocs(collection(db,'allocations')),
+    getDoc(doc(db,'settings','main'))
+  ]);
+  const monthData={},uploads={},loaded=[];
+  mSnap.forEach(d=>{
+    const v=d.data();
+    monthData[d.id]={typeCompanyData:v.typeCompanyData||{},rows:v.rows||0,at:v.at||''};
+    uploads[d.id]={rows:v.rows||0,at:v.at||''};
+    loaded.push(d.id);
+  });
+  loaded.sort();
+  const matrixByMonth={};
+  aSnap.forEach(d=>{matrixByMonth[d.id]=d.data().matrix;});
+  let depts=INIT_DEPTS.slice(),types=[],companies=[],presets=[];
+  if(sSnap.exists()){
+    const s=sSnap.data();
+    if(s.depts?.length)depts=s.depts;
+    if(s.types?.length)types=s.types;
+    if(s.companies?.length)companies=s.companies;
+    if(s.presets?.length)presets=s.presets;
+  }
+  return{monthData,uploads,loaded,matrixByMonth,depts,types,companies,presets};
+}
+async function fsSaveMonth(ym,typeCompanyData,rows,at){
+  const{doc,setDoc}=FS();await setDoc(doc(DB(),'months',ym),{typeCompanyData,rows,at});
+}
+async function fsDeleteMonth(ym){const{doc,deleteDoc}=FS();await deleteDoc(doc(DB(),'months',ym));}
+async function fsSaveAlloc(ym,matrix){const{doc,setDoc}=FS();await setDoc(doc(DB(),'allocations',ym),{matrix});}
+async function fsSaveSettings(depts,presets,types,companies){
+  const{doc,setDoc}=FS();await setDoc(doc(DB(),'settings','main'),{depts,presets,types,companies});
+}
+
+// ---- SVG Charts ----
+function LineSVG({pts}){
+  const w=1140,h=270,pl=46,pr=24,pt=26,pb=34;
+  const n=pts.length,dense=n>14;
+  const iw=w-pl-pr,ih=h-pt-pb;
+  const max=Math.max(...pts.map(p=>p.value),1),top=Math.ceil(max/20)*20||20;
+  const X=i=>pl+iw*(n>1?i/(n-1):0.5);
+  const Y=v=>pt+ih*(1-v/top);
+  const els=[];
+  for(let g=0;g<=4;g++){
+    const gy=pt+ih*g/4,val=Math.round(top*(1-g/4));
+    els.push(<line key={`gl${g}`} x1={pl} x2={w-pr} y1={gy} y2={gy} stroke="#EEF0F2" strokeWidth={1}/>);
+    els.push(<text key={`gt${g}`} x={pl-9} y={gy+4} textAnchor="end" fontSize={11} fill="#AEB3BA">{val}</text>);
+  }
+  pts.forEach((p,i)=>{
+    if(dense&&!(i===0||i===n-1||i%3===0))return;
+    els.push(<text key={`xl${i}`} x={X(i)} y={h-11} textAnchor="middle" fontSize={dense?10:11} fill="#9CA1A8" fontWeight={600}>{p.label}</text>);
+  });
+  if(n>1){
+    const d=pts.map((p,i)=>`${i?'L':'M'}${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(' ');
+    els.push(<path key="ln" d={d} fill="none" stroke={ACCENT} strokeWidth={2.4} strokeLinejoin="round" strokeLinecap="round"/>);
+  }
+  pts.forEach((p,i)=>{
+    els.push(<circle key={`c${i}`} cx={X(i)} cy={Y(p.value)} r={dense?2.8:4.6} fill="#fff" stroke={ACCENT} strokeWidth={dense?2:2.6}/>);
+    if(!dense)els.push(<text key={`v${i}`} x={X(i)} y={Y(p.value)-13} textAnchor="middle" fontSize={11.5} fontWeight={700} fill="#2B2F36">{p.value.toFixed(1)}</text>);
+  });
+  return <svg viewBox={`0 0 ${w} ${h}`} width="100%" style={{display:'block',height:'auto'}}>{els}</svg>;
+}
+
+function DonutSVG({data}){
+  const size=170,r=62,cx=85,cy=85,sw=24,C=2*Math.PI*r;
+  const total=data.reduce((s,d)=>s+d.value,0)||1;
+  let off=0;
+  const arcs=data.map((d,i)=>{
+    const len=C*(d.value/total);
+    const el=<circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={PAL[i%PAL.length]} strokeWidth={sw} strokeDasharray={`${len} ${C-len}`} strokeDashoffset={-off} transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="butt"/>;
+    off+=len;return el;
+  });
+  return(
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} style={{display:'block'}}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#F0F1F3" strokeWidth={sw}/>
+      {arcs}
+      <text x={cx} y={cy-4} textAnchor="middle" fontSize={12} fill="#9CA1A8">처리업체</text>
+      <text x={cx} y={cy+19} textAnchor="middle" fontSize={22} fontWeight={800} fill="#1B1E24">{data.length}곳</text>
+    </svg>
+  );
+}
+
+function GaugeSVG(){
+  const size=128,r=50,cx=64,cy=64,sw=13,C=2*Math.PI*r,pct=0.92;
+  return(
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} style={{display:'block'}}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#F0F1F3" strokeWidth={sw}/>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${C*pct} ${C}`} transform={`rotate(-90 ${cx} ${cy})`}/>
+      <text x={cx} y={cy-2} textAnchor="middle" fontSize={26} fontWeight={800} fill="#1B1E24">92%</text>
+      <text x={cx} y={cy+18} textAnchor="middle" fontSize={10.5} fill="#9CA1A8" fontWeight={600}>처리 진행률</text>
+    </svg>
+  );
+}
+
+function Icon({name,size=18}){
+  const s=(ch)=><svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">{ch}</svg>;
+  switch(name){
+    case 'upload':return s([<path key={1} d="M12 16V4"/>,<polyline key={2} points="7 9 12 4 17 9"/>,<path key={3} d="M4 20h16"/>]);
+    case 'history':return s([<rect key={1} x={4} y={4} width={16} height={5} rx={1.5}/>,<rect key={2} x={4} y={11} width={16} height={5} rx={1.5}/>,<line key={3} x1={7} y1={19.5} x2={13} y2={19.5}/>]);
+    case 'dashboard':return s([<rect key={1} x={4} y={4} width={7} height={7} rx={1.5}/>,<rect key={2} x={13} y={4} width={7} height={7} rx={1.5}/>,<rect key={3} x={4} y={13} width={7} height={7} rx={1.5}/>,<rect key={4} x={13} y={13} width={7} height={7} rx={1.5}/>]);
+    case 'company':return s([<line key={0} x1={4} y1={20} x2={20} y2={20}/>,<rect key={1} x={5} y={12} width={3.4} height={6}/>,<rect key={2} x={10.3} y={8} width={3.4} height={10}/>,<rect key={3} x={15.6} y={14} width={3.4} height={4}/>]);
+    case 'type':return s([<circle key={1} cx={12} cy={12} r={8}/>,<path key={2} d="M12 4a8 8 0 0 1 8 8h-8z" fill="currentColor" stroke="none" opacity={0.35}/>]);
+    case 'alloc':return s([<rect key={1} x={4} y={4} width={16} height={16} rx={2}/>,<line key={2} x1={4} y1={10} x2={20} y2={10}/>,<line key={3} x1={4} y1={15} x2={20} y2={15}/>,<line key={4} x1={12} y1={10} x2={12} y2={20}/>]);
+    case 'dept':return s([<circle key={1} cx={8} cy={8} r={3}/>,<circle key={2} cx={16.5} cy={9} r={2.4}/>,<path key={3} d="M3 20c0-3 2.3-5 5-5s5 2 5 5"/>,<path key={4} d="M14.5 20c0-2.2 1.4-4 3.4-4"/>]);
+    case 'report':return s([<path key={1} d="M7 3h7l4 4v14H7z"/>,<line key={2} x1={10} y1={12} x2={15} y2={12}/>,<line key={3} x1={10} y1={16} x2={15} y2={16}/>]);
+    case 'guide':return s([<circle key={1} cx={12} cy={12} r={8}/>,<path key={2} d="M12 8v8M8 12h8"/>]);
+    default:return s(<circle cx={12} cy={12} r={8}/>);
+  }
+}
+
+function CheckSVG(){return<svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;}
+function Chevron(){return<svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>;}
+
+// ---- Main App ----
+function App(){
+  const [isLoading,setIsLoading]=useState(true);
+  const [screen,setScreen]=useState('dashboard');
+  const [fromYm,setFromYm]=useState('');
+  const [toYm,setToYm]=useState('');
+  const [selTypes,setSelTypes]=useState([]);
+  const [selCompanies,setSelCompanies]=useState([]);
+  const [selDepts,setSelDepts]=useState([]);
+  const [openFilter,setOpenFilter]=useState(null);
+
+  // Dynamic data (from Excel uploads)
+  const [types,setTypes]=useState([]);
+  const [companies,setCompanies]=useState([]);
+  const [monthData,setMonthData]=useState({});
+  const [loaded,setLoaded]=useState([]);
+  const [uploads,setUploads]=useState({});
+
+  // Upload screen
+  const [uploadYm,setUploadYm]=useState('2024-01');
+  const [selectedFile,setSelectedFile]=useState(null);
+  const [parsedData,setParsedData]=useState(null);
+  const [parseError,setParseError]=useState('');
+  const [dragOver,setDragOver]=useState(false);
+
+  // Allocation
+  const [matrixByMonth,setMatrixByMonth]=useState({});
+  const [allocMonth,setAllocMonth]=useState('');
+  const [depts,setDepts]=useState(()=>INIT_DEPTS.slice());
+  const [presets,setPresets]=useState([]);
+  const [presetName,setPresetName]=useState('');
+  const [selectedPreset,setSelectedPreset]=useState('');
+  const [newDept,setNewDept]=useState('');
+
+  // Stable refs
+  const matrixRef=useRef(matrixByMonth);matrixRef.current=matrixByMonth;
+  const deptsRef=useRef(depts);deptsRef.current=depts;
+  const presetsRef=useRef(presets);presetsRef.current=presets;
+  const typesRef=useRef(types);typesRef.current=types;
+  const companiesRef=useRef(companies);companiesRef.current=companies;
+  const loadedRef=useRef(loaded);loadedRef.current=loaded;
+  const fileInputRef=useRef(null);
+
+  // ---- Load from Firestore ----
+  useEffect(()=>{
+    const load=async()=>{
+      try{
+        const data=await fsLoad();
+        setMonthData(data.monthData);
+        setUploads(data.uploads);
+        setLoaded(data.loaded);
+        setMatrixByMonth(data.matrixByMonth);
+        setDepts(data.depts);
+        setTypes(data.types);
+        setCompanies(data.companies);
+        setPresets(data.presets);
+        if(data.presets.length)setSelectedPreset(data.presets[0].name);
+        if(data.loaded.length){
+          const lo=data.loaded;
+          setFromYm(lo[0]);
+          setToYm(lo[lo.length-1]);
+          setAllocMonth(lo[lo.length-1]);
+          const nextUnloaded=MONTHS.map(m=>m.ym).find(y=>!lo.includes(y))||'2024-01';
+          setUploadYm(nextUnloaded);
+        }
+      }catch(e){console.error('Firestore load failed:',e);}
+      setIsLoading(false);
+    };
+    if(window.__firebaseReady)load();
+    else window.addEventListener('firebase-ready',load,{once:true});
+  },[]);
+
+  const go=useCallback(s=>{setScreen(s);setOpenFilter(null);},[]);
+  const togglePanel=useCallback(k=>setOpenFilter(p=>p===k?null:k),[]);
+  const closeFilter=useCallback(()=>setOpenFilter(null),[]);
+
+  const toggleSel=(kind,idx)=>{
+    const map={selTypes:setSelTypes,selCompanies:setSelCompanies,selDepts:setSelDepts};
+    map[kind](p=>{const a=p.slice();const i=a.indexOf(idx);i>=0?a.splice(i,1):a.push(idx);return a;});
+  };
+
+  const clearAll=()=>{
+    setSelTypes([]);setSelCompanies([]);setSelDepts([]);
+    setLoaded(lo=>{const s=lo.slice().sort();if(s.length){setFromYm(s[0]);setToYm(s[s.length-1]);}return lo;});
+  };
+
+  const handleSetFrom=e=>{const v=e.target.value;setFromYm(v);setToYm(p=>v>p?v:p);};
+  const handleSetTo=e=>{const v=e.target.value;setToYm(v);setFromYm(p=>v<p?v:p);};
+
+  // ---- File handling ----
+  const handleFileSelect=async files=>{
+    if(!files||!files.length)return;
+    const file=files[0];
+    setSelectedFile(file);
+    setParsedData(null);
+    setParseError('');
+    try{
+      const result=await parseExcel(file);
+      setParsedData(result);
+      if(result.detectedYm&&MONTHS.some(m=>m.ym===result.detectedYm)){
+        setUploadYm(result.detectedYm);
+      }
+    }catch(e){
+      setParseError(e.message||'파일 파싱 중 오류가 발생했습니다.');
+    }
+  };
+
+  // ---- Upload ----
+  const confirmUpload=async()=>{
+    if(!parsedData&&!selectedFile){return;}
+    const ym=uploadYm;
+    const at=atFor(ym);
+
+    let tcd,rows;
+    if(parsedData){
+      tcd=parsedData.typeCompanyData;
+      rows=parsedData.rows;
+    }else{return;}
+
+    // Detect new types
+    const existingTypeNames=new Set(typesRef.current.map(t=>t.name));
+    const newTypes=Object.entries(parsedData.typeCategories)
+      .filter(([name])=>!existingTypeNames.has(name))
+      .map(([name,cat])=>({name,cat}));
+
+    // Detect new companies
+    const existingCompanyNames=new Set(companiesRef.current.map(c=>c.name));
+    const allCompanyNames=new Set(Object.values(tcd).flatMap(cd=>Object.keys(cd)));
+    const newCompanies=[...allCompanyNames].filter(n=>!existingCompanyNames.has(n)).map(n=>({name:n}));
+
+    let updatedTypes=typesRef.current;
+    let updatedCompanies=companiesRef.current;
+
+    if(newTypes.length){
+      updatedTypes=[...typesRef.current,...newTypes];
+      setTypes(updatedTypes);
+      // Extend existing matrices with new type rows (all zeros)
+      setMatrixByMonth(p=>{
+        const o={};
+        Object.keys(p).forEach(m=>{
+          o[m]=[...p[m],...Array.from({length:newTypes.length},()=>new Array(deptsRef.current.length).fill(0))];
+        });
+        return o;
+      });
+    }
+    if(newCompanies.length){
+      updatedCompanies=[...companiesRef.current,...newCompanies];
+      setCompanies(updatedCompanies);
+    }
+
+    setMonthData(p=>({...p,[ym]:{typeCompanyData:tcd,rows,at}}));
+    setUploads(p=>({...p,[ym]:{rows,at}}));
+    setLoaded(prev=>{
+      const lo=prev.includes(ym)?prev.slice():[...prev,ym].sort();
+      setFromYm(f=>f?clampYm(lo,f):lo[0]);
+      setToYm(lo[lo.length-1]);
+      if(!allocMonth)setAllocMonth(lo[lo.length-1]);
+      const nextUnloaded=MONTHS.map(m=>m.ym).find(y=>!lo.includes(y))||ym;
+      setUploadYm(nextUnloaded);
+      return lo;
+    });
+
+    await fsSaveMonth(ym,tcd,rows,at);
+    await fsSaveSettings(deptsRef.current,presetsRef.current,updatedTypes,updatedCompanies);
+
+    // Create default allocation for this month if none exists
+    if(!matrixRef.current[ym]){
+      const matrix=defaultMatrix(updatedTypes.length,deptsRef.current.length);
+      setMatrixByMonth(p=>({...p,[ym]:matrix}));
+      await fsSaveAlloc(ym,matrix);
+    }
+
+    setSelectedFile(null);
+    setParsedData(null);
+    setParseError('');
+  };
+
+  const deleteUpload=async ym=>{
+    setLoaded(prev=>{
+      if(prev.length<=1)return prev;
+      const lo=prev.filter(y=>y!==ym).sort();
+      setFromYm(f=>clampYm(lo,f));
+      setToYm(t=>clampYm(lo,t));
+      setAllocMonth(a=>lo.includes(a)?a:lo[lo.length-1]);
+      return lo;
+    });
+    setUploads(p=>{const o={...p};delete o[ym];return o;});
+    setMonthData(p=>{const o={...p};delete o[ym];return o;});
+    await fsDeleteMonth(ym);
+  };
+
+  const reupload=ym=>{setScreen('upload');setUploadYm(ym);setOpenFilter(null);};
+
+  const prevMonthFn=()=>setAllocMonth(a=>{const s=loadedRef.current.slice().sort();const i=s.indexOf(a);return i>0?s[i-1]:a;});
+  const nextMonthFn=()=>setAllocMonth(a=>{const s=loadedRef.current.slice().sort();const i=s.indexOf(a);return i<s.length-1?s[i+1]:a;});
+
+  const setCell=e=>{
+    const i=+e.target.dataset.i,j=+e.target.dataset.j;
+    let v=parseFloat(e.target.value);if(isNaN(v))v=0;v=Math.max(0,Math.min(100,v));
+    setMatrixByMonth(p=>{const o={...p};const m=o[allocMonth]?o[allocMonth].map(r=>r.slice()):defaultMatrix(types.length,depts.length);m[i][j]=v;o[allocMonth]=m;return o;});
+  };
+
+  const saveMatrixOnBlur=useCallback(async()=>{
+    const matrix=matrixRef.current[allocMonth];
+    if(!matrix)return;
+    await fsSaveAlloc(allocMonth,matrix);
+  },[allocMonth]);
+
+  const applyAll=async()=>{
+    const src=(matrixByMonth[allocMonth]||defaultMatrix(types.length,depts.length)).map(r=>r.slice());
+    const lo=loadedRef.current;
+    const newMat={};lo.forEach(ym=>{newMat[ym]=src.map(r=>r.slice());});
+    setMatrixByMonth(newMat);
+    await Promise.all(lo.map(ym=>fsSaveAlloc(ym,newMat[ym])));
+  };
+
+  const resetMatrix=async()=>{
+    const matrix=defaultMatrix(types.length,depts.length);
+    setMatrixByMonth(p=>({...p,[allocMonth]:matrix}));
+    await fsSaveAlloc(allocMonth,matrix);
+  };
+
+  const addDept=async()=>{
+    const n=newDept.trim();if(!n)return;
+    const newDepts=[...deptsRef.current,n];
+    setDepts(newDepts);
+    const newMat={};
+    Object.keys(matrixRef.current).forEach(ym=>{newMat[ym]=matrixRef.current[ym].map(r=>[...r,0]);});
+    setMatrixByMonth(newMat);
+    setNewDept('');
+    await Promise.all([fsSaveSettings(newDepts,presetsRef.current,typesRef.current,companiesRef.current),...Object.keys(newMat).map(ym=>fsSaveAlloc(ym,newMat[ym]))]);
+  };
+
+  const removeDept=async j=>{
+    if(depts.length<=1)return;
+    const newDepts=deptsRef.current.filter((_,k)=>k!==j);
+    setDepts(newDepts);
+    const newMat={};
+    Object.keys(matrixRef.current).forEach(ym=>{newMat[ym]=matrixRef.current[ym].map(r=>r.filter((_,k)=>k!==j));});
+    setMatrixByMonth(newMat);
+    await Promise.all([fsSaveSettings(newDepts,presetsRef.current,typesRef.current,companiesRef.current),...Object.keys(newMat).map(ym=>fsSaveAlloc(ym,newMat[ym]))]);
+  };
+
+  const savePreset=async()=>{
+    const name=(presetName.trim())||('배분안 '+(presetsRef.current.length+1));
+    const matrix=(matrixByMonth[allocMonth]||defaultMatrix(types.length,depts.length)).map(r=>r.slice());
+    const newPresets=[...presetsRef.current.filter(x=>x.name!==name),{name,matrix}];
+    setPresets(newPresets);setSelectedPreset(name);setPresetName('');
+    await fsSaveSettings(deptsRef.current,newPresets,typesRef.current,companiesRef.current);
+  };
+
+  const loadPreset=async e=>{
+    const name=e.target.value;const p=presetsRef.current.find(x=>x.name===name);if(!p)return;
+    setSelectedPreset(name);
+    const cols=deptsRef.current.length;
+    const matrix=p.matrix.map(r=>{const row=r.slice(0,cols);while(row.length<cols)row.push(0);return row;});
+    setMatrixByMonth(prev=>({...prev,[allocMonth]:matrix}));
+    await fsSaveAlloc(allocMonth,matrix);
+  };
+
+  // ---- Derived state ----
+  const loadedSorted=useMemo(()=>loaded.slice().sort(),[loaded]);
+  const monthOptions=loadedSorted.map(ym=>({ym,label:ym}));
+
+  const periodIdx=useMemo(()=>{
+    if(!fromYm||!toYm)return[];
+    const a=fromYm<=toYm?fromYm:toYm,b=fromYm<=toYm?toYm:fromYm;
+    return MONTHS.map((_,i)=>i).filter(i=>{const ym=MONTHS[i].ym;return loaded.includes(ym)&&ym>=a&&ym<=b;});
+  },[fromYm,toYm,loaded]);
+
+  const activeTypeIdx=useMemo(()=>selTypes.length?selTypes.slice().sort((a,b)=>a-b):types.map((_,i)=>i),[selTypes,types]);
+
+  const periodLabel=useMemo(()=>{
+    if(!periodIdx.length)return'데이터 없음';
+    const f=MONTHS[periodIdx[0]],l=MONTHS[periodIdx[periodIdx.length-1]];
+    return f.ym===l.ym?`${f.ym} (단월)`:`${f.ym} ~ ${l.ym} (${periodIdx.length}개월)`;
+  },[periodIdx]);
+
+  // Core data accessor: sum tonnage for a month index, filtered by type and company selections
+  const sumMi=useCallback((mi)=>{
+    if(mi<0||mi>=MONTHS.length)return null;
+    const ym=MONTHS[mi].ym;
+    if(!loaded.includes(ym))return null;
+    const tcd=monthData[ym]?.typeCompanyData||{};
+    let sum=0;
+    activeTypeIdx.forEach(t=>{
+      const typeName=types[t]?.name;if(!typeName)return;
+      const byCompany=tcd[typeName]||{};
+      if(selCompanies.length){
+        selCompanies.forEach(ci=>{sum+=byCompany[companies[ci]?.name]||0;});
+      }else{
+        sum+=Object.values(byCompany).reduce((s,v)=>s+v,0);
+      }
+    });
+    return sum;
+  },[loaded,monthData,activeTypeIdx,types,selCompanies,companies]);
+
+  const dashboardData=useMemo(()=>{
+    const sumRange=(a,b)=>{let v=0;for(let i=a;i<=b;i++){const s=sumMi(i);if(s===null)return null;v+=s;}return v;};
+    let total=0;periodIdx.forEach(mi=>{const s=sumMi(mi);if(s!==null)total+=s;});
+    const companyCount=selCompanies.length||companies.length;
+    const typeCount=activeTypeIdx.length;
+    const avgLabel=fmt(total/(periodIdx.length||1));
+    const lastIdx=periodIdx.length?periodIdx[periodIdx.length-1]:-1;
+    const lm=MONTHS[lastIdx]||{ym:''};
+
+    const mkCmp=(label,cur,prev,cmp)=>{
+      if(cur===null||prev===null)return{label,cmp:'이전 기간 데이터 없음',color:'#9CA1A8',arrow:'–',arrowColor:'#C7CCD3',pctLabel:'—',deltaLabel:'비교 불가'};
+      const d=cur-prev,pct=prev?d/prev*100:0,up=d>=0,color=up?'#E5484D':'#2F6FEB';
+      return{label,cmp,color,arrow:up?'▲':'▼',arrowColor:color,pctLabel:(up?'+':'−')+Math.abs(pct).toFixed(1)+'%',deltaLabel:(up?'+':'−')+fmt(Math.abs(d))+' t'};
+    };
+    const compareCards=[
+      mkCmp('전월 대비',sumMi(lastIdx),sumMi(lastIdx-1),`${lm.ym} vs 전월`),
+      mkCmp('전분기 대비',sumRange(lastIdx-2,lastIdx),sumRange(lastIdx-5,lastIdx-3),'최근 3개월 vs 직전 3개월'),
+      mkCmp('전년 동기 대비',sumMi(lastIdx),sumMi(lastIdx-12),`${lm.ym} vs 전년 동월`)
+    ];
+
+    const crossYear=periodIdx.length&&MONTHS[periodIdx[0]].y!==MONTHS[periodIdx[periodIdx.length-1]].y;
+    const trend=periodIdx.map(mi=>{const m=MONTHS[mi];const label=crossYear?`${String(m.y).slice(2)}.${String(m.mo).padStart(2,'0')}`:`${m.mo}월`;return{label,value:sumMi(mi)||0};});
+    const trendRange=periodIdx.length?`${MONTHS[periodIdx[0]].ym} ~ ${MONTHS[periodIdx[periodIdx.length-1]].ym} · 단위 t`:'단위 t';
+
+    // Type bars
+    const typeVals=activeTypeIdx.map(t=>{
+      const typeName=types[t]?.name;const cat=types[t]?.cat||'일반';
+      const value=periodIdx.reduce((s,mi)=>{
+        const tcd=monthData[MONTHS[mi].ym]?.typeCompanyData||{};
+        const byCompany=tcd[typeName]||{};
+        if(selCompanies.length)return s+selCompanies.reduce((s2,ci)=>s2+(byCompany[companies[ci]?.name]||0),0);
+        return s+Object.values(byCompany).reduce((s2,v)=>s2+v,0);
+      },0);
+      return{label:typeName,cat,value};
+    }).sort((a,b)=>b.value-a.value);
+    const tvTotal=typeVals.reduce((s,d)=>s+d.value,0)||1,tvMax=Math.max(...typeVals.map(d=>d.value),1);
+    const typeBars=typeVals.slice(0,8).map(d=>({label:d.label,cat:d.cat,tagStyle:tagStyle(d.cat),valueLabel:fmt(d.value),pctLabel:(d.value/tvTotal*100).toFixed(0)+'%',w:(d.value/tvMax*100).toFixed(1)+'%',fill:d.cat==='지정'?ACCENT:ACCENT+'80',dot:{width:'8px',height:'8px',borderRadius:'3px',flexShrink:0,background:d.cat==='지정'?ACCENT:ACCENT+'80'}}));
+
+    // Company donut — aggregate over period
+    const companyPeriodTotals={};
+    periodIdx.forEach(mi=>{
+      const tcd=monthData[MONTHS[mi].ym]?.typeCompanyData||{};
+      activeTypeIdx.forEach(t=>{
+        const typeName=types[t]?.name;if(!typeName)return;
+        Object.entries(tcd[typeName]||{}).forEach(([cn,v])=>{companyPeriodTotals[cn]=(companyPeriodTotals[cn]||0)+v;});
+      });
+    });
+    const compSel=(selCompanies.length?selCompanies.map(i=>companies[i]).filter(Boolean):companies).map(c=>({...c,total:companyPeriodTotals[c.name]||0}));
+    const cTotal=compSel.reduce((s,c)=>s+c.total,0)||1;
+    const companyLegend=compSel.map((c,i)=>({label:c.name,pctLabel:(c.total/cTotal*100).toFixed(1)+'%',color:PAL[i%PAL.length]}));
+
+    // Dept bars
+    let deptVals=depts.map((d,j)=>{
+      let v=0;
+      periodIdx.forEach(mi=>{
+        const ym=MONTHS[mi].ym;
+        const mat=matrixByMonth[ym]||defaultMatrix(types.length,depts.length);
+        activeTypeIdx.forEach(t=>{
+          const typeName=types[t]?.name;if(!typeName)return;
+          const tcd=monthData[ym]?.typeCompanyData||{};
+          const byCompany=tcd[typeName]||{};
+          let typeTotal=selCompanies.length?selCompanies.reduce((s,ci)=>s+(byCompany[companies[ci]?.name]||0),0):Object.values(byCompany).reduce((s,v)=>s+v,0);
+          v+=typeTotal*((mat[t]?.[j]??0)/100);
+        });
+      });
+      return{label:d,j,value:v};
+    });
+    if(selDepts.length)deptVals=deptVals.filter(d=>selDepts.includes(d.j));
+    const dTotal=deptVals.reduce((s,d)=>s+d.value,0)||1,dMax=Math.max(...deptVals.map(d=>d.value),1);
+    const deptBars=deptVals.sort((a,b)=>b.value-a.value).map(d=>({label:d.label,valueLabel:fmt(d.value),pctLabel:(d.value/dTotal*100).toFixed(0)+'%',w:(d.value/dMax*100).toFixed(1)+'%'}));
+
+    return{total,companyCount,typeCount,avgLabel,compareCards,trend,trendRange,typeBars,compSel,companyLegend,deptBars};
+  },[periodIdx,activeTypeIdx,loaded,selCompanies,selDepts,depts,matrixByMonth,monthData,types,companies,sumMi]);
+
+  // ---- Alloc derived ----
+  const curMatrix=allocMonth?(matrixByMonth[allocMonth]||defaultMatrix(types.length,depts.length)):defaultMatrix(types.length,depts.length);
+  const okMonths=useMemo(()=>loadedSorted.filter(ym=>{const mat=matrixByMonth[ym]||defaultMatrix(types.length,depts.length);return mat.length>0&&mat.every(r=>Math.round(r.reduce((a,b)=>a+(+b||0),0))===100);}).length,[loadedSorted,matrixByMonth,types,depts]);
+  const allocRows=curMatrix.map((row,i)=>{
+    const type=types[i]||{name:`폐기물 ${i+1}`,cat:'일반'};
+    const tot=row.reduce((a,b)=>a+(+b||0),0),ok=Math.round(tot)===100;
+    return{i,type:type.name,cat:type.cat,tagStyle:tagStyle(type.cat),cells:row.map((v,j)=>({i,j,v})),totalLabel:Math.round(tot)+'%',
+      totalStyle:ok?{fontSize:'12.5px',fontWeight:800,color:'#1F8A5B',background:'#E7F5EE',borderRadius:'7px',padding:'5px 10px'}:{fontSize:'12.5px',fontWeight:800,color:'#E5484D',background:'#FCEAEA',borderRadius:'7px',padding:'5px 10px'}};
+  });
+  const invalid=allocRows.filter(r=>r.totalLabel!=='100%').length;
+
+  // ---- Upload derived ----
+  const curTotalRows=loadedSorted.reduce((s,ym)=>s+(uploads[ym]||{}).rows||0,0);
+  const upLoaded=loaded.includes(uploadYm);
+  const uploadOptions=MONTHS.map(m=>({ym:m.ym,label:loaded.includes(m.ym)?`${m.ym} (누적됨)`:m.ym}));
+  const uploadsList=loadedSorted.slice().reverse().map(ym=>{const u=uploads[ym]||{};return{ym,at:u.at||'-',rows:fmtK(u.rows||0),onDelete:()=>deleteUpload(ym),onReupload:()=>reupload(ym)};});
+  const histRange=loadedSorted.length?`${loadedSorted[0]} ~ ${loadedSorted[loadedSorted.length-1]}`:'-';
+
+  // New types/companies in parsed data
+  const parsedNewTypes=parsedData?Object.keys(parsedData.typeCompanyData).filter(n=>!types.find(t=>t.name===n)):[];
+  const parsedNewCompanies=parsedData?[...new Set(Object.values(parsedData.typeCompanyData).flatMap(cd=>Object.keys(cd)))].filter(n=>!companies.find(c=>c.name===n)):[];
+
+  // ---- Nav ----
+  const navDef=[['dashboard','요약 대시보드'],['dept','부서별 분석'],['type','종류별 분석'],['company','업체별 분석'],['upload','데이터 업로드'],['history','누적 데이터 관리'],['alloc','발생 부서 배분'],['report','리포트/내보내기']];
+  const built=['dashboard','alloc','upload','history'];
+  const navStyle=active=>active?{display:'flex',alignItems:'center',gap:'11px',padding:'10px 12px',borderRadius:'9px',cursor:'pointer',fontSize:'13px',fontWeight:700,color:'#fff',background:ACCENT+'26',boxShadow:'inset 3px 0 0 '+ACCENT}:{display:'flex',alignItems:'center',gap:'11px',padding:'10px 12px',borderRadius:'9px',cursor:'pointer',fontSize:'13px',fontWeight:600,color:'#A7ACB4'};
+  const fbtn=active=>({display:'flex',alignItems:'center',gap:'7px',fontSize:'12.5px',fontWeight:700,color:'#2B2F36',background:'#fff',border:`1px solid ${active?ACCENT:'#E2E5E9'}`,borderRadius:'9px',padding:'8px 13px',cursor:'pointer'});
+  const META={system:{title:'디자인 시스템',sub:'폐기물 실적 분석 도구 · 비주얼 가이드'},dashboard:{title:'요약 대시보드',sub:'조회 조건 기준 위탁량 분석'},alloc:{title:'발생 부서 배분 비율 입력',sub:'월별 · 폐기물 종류 × 부서 배분(%) · 행 합계 100%'},upload:{title:'데이터 업로드',sub:'월별 엑셀 업로드 → 누적 반영'},history:{title:'누적 데이터 관리',sub:'업로드 이력 · 누적 건수 · 기간 범위'}};
+  const meta=META[screen]||{title:(PLACEHOLDER[screen]||{}).title||'',sub:'이번 디자인 범위 외 화면 (예정)'};
+  const palette=[{name:'한화 오렌지 (액센트)',hex:ACCENT},{name:'차콜 (내비)',hex:'#16181D'},{name:'잉크',hex:'#1B1E24'},{name:'서피스',hex:'#F5F6F8'},{name:'보더',hex:'#E8EAED'},{name:'화이트',hex:'#FFFFFF'}];
+  const isDashboard=screen==='dashboard',isAlloc=screen==='alloc',isSystem=screen==='system',isUpload=screen==='upload',isHistory=screen==='history',isPlaceholder=!!PLACEHOLDER[screen];
+
+  if(isLoading)return(
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:'14px',color:'#6B717A',background:'#F5F6F8'}}>
+      <div style={{width:'36px',height:'36px',border:`3px solid #E8EAED`,borderTopColor:ACCENT,borderRadius:'50%',animation:'spin 0.75s linear infinite'}}/>
+      <div style={{fontSize:'13px',fontWeight:600}}>데이터 불러오는 중…</div>
+    </div>
+  );
+
+  return(
+    <div style={{display:'flex',height:'100vh',width:'100%',overflow:'hidden',background:'#F5F6F8'}}>
+
+      {/* Sidebar */}
+      <aside style={{width:'250px',flexShrink:0,background:'#16181D',color:'#EDEEF0',display:'flex',flexDirection:'column',borderRight:'1px solid #0E0F12'}}>
+        <div style={{padding:'22px 22px 18px',display:'flex',alignItems:'center',gap:'11px'}}>
+          <div style={{width:'34px',height:'34px',borderRadius:'9px',background:ACCENT,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <div style={{width:'13px',height:'13px',borderRadius:'3px',background:'#fff',transform:'rotate(45deg)'}}/>
+          </div>
+          <div style={{fontSize:'15px',fontWeight:800,letterSpacing:'.2px',lineHeight:1.2}}>폐기물 실적 분석</div>
+        </div>
+        <div style={{padding:'6px 13px 4px',fontSize:'10.5px',fontWeight:700,color:'#6C7178',letterSpacing:'1.2px'}}>메뉴</div>
+        <nav style={{display:'flex',flexDirection:'column',gap:'2px',padding:'4px 11px',flex:1,overflow:'auto'}}>
+          {navDef.map(([k,label])=>(
+            <div key={k} onClick={()=>go(k)} className="nav-item" style={navStyle(screen===k)}>
+              <span style={{display:'flex',width:'20px',height:'20px',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon name={k}/></span>
+              <span style={{flex:1}}>{label}</span>
+              {!built.includes(k)&&<span style={{fontSize:'9px',fontWeight:700,color:'#6C7178',border:'1px solid #2E323A',borderRadius:'5px',padding:'1px 5px'}}>예정</span>}
+            </div>
+          ))}
+        </nav>
+        <div style={{padding:'11px',borderTop:'1px solid #24272E'}}>
+          <div onClick={()=>go('system')} className="nav-item" style={navStyle(isSystem)}>
+            <span style={{display:'flex',width:'20px',height:'20px',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon name="guide"/></span>
+            <span>디자인 가이드</span>
+          </div>
+        </div>
+        <div style={{padding:'14px 18px',borderTop:'1px solid #24272E',display:'flex',alignItems:'center',gap:'10px'}}>
+          <div style={{width:'32px',height:'32px',borderRadius:'50%',background:'#2C3038',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:700,color:'#C7CCD3',flexShrink:0}}>담</div>
+          <div style={{lineHeight:1.25}}>
+            <div style={{fontSize:'12.5px',fontWeight:600}}>환경안전팀 · 담당자</div>
+            <div style={{fontSize:'10.5px',color:'#7C828A'}}>누적 실적</div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <main style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <header style={{flexShrink:0,height:'66px',background:'#fff',borderBottom:'1px solid #E8EAED',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 30px'}}>
+          <div style={{lineHeight:1.2}}>
+            <div style={{fontSize:'18px',fontWeight:800,letterSpacing:'-.2px'}}>{meta.title}</div>
+            <div style={{fontSize:'12px',color:'#888E96',marginTop:'2px',fontWeight:500}}>{meta.sub}</div>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+            <div style={{display:'flex',alignItems:'center',gap:'7px',background:'#F3F4F6',border:'1px solid #E8EAED',borderRadius:'999px',padding:'7px 13px',fontSize:'12.5px',color:'#5B616A',fontWeight:600}}>
+              <span style={{width:'7px',height:'7px',borderRadius:'50%',background:ACCENT,display:'inline-block'}}/>{periodLabel}
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:'7px',background:ACCENT,color:'#fff',borderRadius:'999px',padding:'8px 16px',fontSize:'12.5px',fontWeight:700,cursor:'pointer',boxShadow:'0 2px 8px rgba(243,112,33,.28)'}}>
+              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1={12} y1={15} x2={12} y2={3}/></svg>내보내기
+            </div>
+          </div>
+        </header>
+
+        <div style={{flex:1,overflow:'auto',padding:'26px 30px 40px'}}>
+
+          {/* ══ DASHBOARD ══ */}
+          {isDashboard&&(
+            <div style={{maxWidth:'1240px',margin:'0 auto'}}>
+              <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'14px',padding:'15px 18px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',display:'flex',alignItems:'center',gap:'14px',flexWrap:'wrap',position:'relative',zIndex:30}}>
+                <div style={{fontSize:'12px',fontWeight:700,color:'#6B717A',display:'flex',alignItems:'center',gap:'7px'}}>
+                  <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>조회 조건
+                </div>
+                {loadedSorted.length>0?(
+                  <>
+                    <span style={{fontSize:'11.5px',color:'#9CA1A8',fontWeight:700}}>조회 기간</span>
+                    <select value={fromYm} onChange={handleSetFrom} style={{fontFamily:'inherit',fontSize:'12.5px',fontWeight:700,color:'#2B2F36',border:'1px solid #E2E5E9',borderRadius:'9px',padding:'8px 11px',background:'#fff',cursor:'pointer'}}>
+                      {monthOptions.map(m=><option key={m.ym} value={m.ym}>{m.label}</option>)}
+                    </select>
+                    <span style={{color:'#B6BBC2',fontWeight:700}}>~</span>
+                    <select value={toYm} onChange={handleSetTo} style={{fontFamily:'inherit',fontSize:'12.5px',fontWeight:700,color:'#2B2F36',border:'1px solid #E2E5E9',borderRadius:'9px',padding:'8px 11px',background:'#fff',cursor:'pointer'}}>
+                      {monthOptions.map(m=><option key={m.ym} value={m.ym}>{m.label}</option>)}
+                    </select>
+                    <div style={{width:'1px',height:'24px',background:'#E8EAED'}}/>
+                    {/* Dept filter */}
+                    <div style={{position:'relative'}}>
+                      <div onClick={()=>togglePanel('dept')} style={fbtn(openFilter==='dept'||selDepts.length>0)}>
+                        <span style={{color:'#9CA1A8',fontWeight:500}}>발생부서</span><span>{selDepts.length?selDepts.length+'개':'전체'}</span><Chevron/>
+                      </div>
+                      {openFilter==='dept'&&(<div style={{position:'absolute',top:'42px',left:0,width:'200px',background:'#fff',border:'1px solid #E2E5E9',borderRadius:'11px',boxShadow:'0 12px 32px rgba(16,18,23,.14)',padding:'7px',zIndex:50}}>
+                        {depts.map((d,i)=>(<div key={i} onClick={()=>toggleSel('selDepts',i)} className="filter-opt" style={{display:'flex',alignItems:'center',gap:'9px',padding:'8px 9px',borderRadius:'8px',cursor:'pointer',fontSize:'13px'}}>
+                          {selDepts.includes(i)?<span style={{width:'17px',height:'17px',borderRadius:'5px',background:ACCENT,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CheckSVG/></span>:<span style={{width:'17px',height:'17px',borderRadius:'5px',border:'1.5px solid #D3D7DC',flexShrink:0,display:'inline-block'}}/>}
+                          <span style={{flex:1}}>{d}</span>
+                        </div>))}
+                      </div>)}
+                    </div>
+                    {/* Type filter */}
+                    <div style={{position:'relative'}}>
+                      <div onClick={()=>togglePanel('type')} style={fbtn(openFilter==='type'||selTypes.length>0)}>
+                        <span style={{color:'#9CA1A8',fontWeight:500}}>종류</span><span>{selTypes.length?selTypes.length+'개':'전체'}</span><Chevron/>
+                      </div>
+                      {openFilter==='type'&&(<div style={{position:'absolute',top:'42px',left:0,width:'240px',background:'#fff',border:'1px solid #E2E5E9',borderRadius:'11px',boxShadow:'0 12px 32px rgba(16,18,23,.14)',padding:'7px',zIndex:50,maxHeight:'300px',overflow:'auto'}}>
+                        {types.map((t,i)=>(<div key={i} onClick={()=>toggleSel('selTypes',i)} className="filter-opt" style={{display:'flex',alignItems:'center',gap:'9px',padding:'8px 9px',borderRadius:'8px',cursor:'pointer',fontSize:'13px'}}>
+                          {selTypes.includes(i)?<span style={{width:'17px',height:'17px',borderRadius:'5px',background:ACCENT,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CheckSVG/></span>:<span style={{width:'17px',height:'17px',borderRadius:'5px',border:'1.5px solid #D3D7DC',flexShrink:0,display:'inline-block'}}/>}
+                          <span style={{flex:1}}>{t.name}</span><span style={tagStyle(t.cat)}>{t.cat}</span>
+                        </div>))}
+                      </div>)}
+                    </div>
+                    {/* Company filter */}
+                    <div style={{position:'relative'}}>
+                      <div onClick={()=>togglePanel('company')} style={fbtn(openFilter==='company'||selCompanies.length>0)}>
+                        <span style={{color:'#9CA1A8',fontWeight:500}}>처리업체</span><span>{selCompanies.length?selCompanies.length+'개':'전체'}</span><Chevron/>
+                      </div>
+                      {openFilter==='company'&&(<div style={{position:'absolute',top:'42px',left:0,width:'240px',background:'#fff',border:'1px solid #E2E5E9',borderRadius:'11px',boxShadow:'0 12px 32px rgba(16,18,23,.14)',padding:'7px',zIndex:50,maxHeight:'300px',overflow:'auto'}}>
+                        {companies.map((c,i)=>(<div key={i} onClick={()=>toggleSel('selCompanies',i)} className="filter-opt" style={{display:'flex',alignItems:'center',gap:'9px',padding:'8px 9px',borderRadius:'8px',cursor:'pointer',fontSize:'13px'}}>
+                          {selCompanies.includes(i)?<span style={{width:'17px',height:'17px',borderRadius:'5px',background:ACCENT,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CheckSVG/></span>:<span style={{width:'17px',height:'17px',borderRadius:'5px',border:'1.5px solid #D3D7DC',flexShrink:0,display:'inline-block'}}/>}
+                          <span style={{flex:1}}>{c.name}</span>
+                        </div>))}
+                      </div>)}
+                    </div>
+                    <div onClick={clearAll} className="clear-btn" style={{marginLeft:'auto',fontSize:'12px',color:'#9CA1A8',fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}>
+                      <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/></svg>초기화
+                    </div>
+                  </>
+                ):(
+                  <div style={{fontSize:'13px',color:'#9CA1A8',display:'flex',alignItems:'center',gap:'8px'}}>
+                    데이터가 없습니다 — <span onClick={()=>go('upload')} style={{color:ACCENT,fontWeight:700,cursor:'pointer'}}>업로드 화면에서 데이터를 추가하세요 →</span>
+                  </div>
+                )}
+              </div>
+
+              {loadedSorted.length>0?(
+                <>
+                  <div style={{display:'flex',gap:'16px',marginTop:'16px'}}>
+                    <div style={{flex:1.7,background:'#16181D',color:'#fff',borderRadius:'16px',padding:'24px 26px',position:'relative',overflow:'hidden'}}>
+                      <div style={{position:'absolute',right:'-30px',top:'-30px',width:'160px',height:'160px',borderRadius:'50%',background:ACCENT,opacity:.16,filter:'blur(8px)'}}/>
+                      <div style={{fontSize:'12.5px',color:'#9DA2AA',fontWeight:600,position:'relative'}}>선택 조건 총 위탁량</div>
+                      <div style={{display:'flex',alignItems:'flex-end',gap:'8px',marginTop:'10px',position:'relative'}}>
+                        <div style={{fontSize:'46px',fontWeight:800,letterSpacing:'-1.5px',lineHeight:1}}>{fmt(dashboardData.total)}</div>
+                        <div style={{fontSize:'18px',fontWeight:600,color:'#B6BBC2',marginBottom:'5px'}}>t</div>
+                      </div>
+                      <div style={{display:'flex',gap:'18px',marginTop:'18px',position:'relative'}}>
+                        <div><div style={{fontSize:'11px',color:'#8A8F97'}}>처리업체</div><div style={{fontSize:'18px',fontWeight:700,marginTop:'2px'}}>{dashboardData.companyCount}<span style={{fontSize:'12px',color:'#9DA2AA',fontWeight:500}}> 곳</span></div></div>
+                        <div style={{width:'1px',background:'#2C3038'}}/>
+                        <div><div style={{fontSize:'11px',color:'#8A8F97'}}>폐기물 종류</div><div style={{fontSize:'18px',fontWeight:700,marginTop:'2px'}}>{dashboardData.typeCount}<span style={{fontSize:'12px',color:'#9DA2AA',fontWeight:500}}> 종</span></div></div>
+                        <div style={{width:'1px',background:'#2C3038'}}/>
+                        <div><div style={{fontSize:'11px',color:'#8A8F97'}}>월평균</div><div style={{fontSize:'18px',fontWeight:700,marginTop:'2px'}}>{dashboardData.avgLabel}<span style={{fontSize:'12px',color:'#9DA2AA',fontWeight:500}}> t</span></div></div>
+                      </div>
+                    </div>
+                    {dashboardData.compareCards.map((c,i)=>(
+                      <div key={i} style={{flex:1,background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'20px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
+                        <div style={{fontSize:'12px',color:'#888E96',fontWeight:600}}>{c.label}</div>
+                        <div>
+                          <div style={{display:'flex',alignItems:'center',gap:'6px',marginTop:'14px'}}>
+                            <span style={{fontSize:'13px',color:c.arrowColor}}>{c.arrow}</span>
+                            <span style={{fontSize:'24px',fontWeight:800,letterSpacing:'-.5px',color:c.color}}>{c.pctLabel}</span>
+                          </div>
+                          <div style={{fontSize:'12.5px',color:'#7C828A',marginTop:'5px',fontWeight:600}}>{c.deltaLabel} <span style={{color:'#AEB3BA',fontWeight:500}}>({c.cmp})</span></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'15px 18px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',marginTop:'16px'}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'6px'}}>
+                      <div><div style={{fontSize:'15px',fontWeight:700}}>월별 발생(위탁)량 추이</div><div style={{fontSize:'11.5px',color:'#9CA1A8',marginTop:'2px'}}>{dashboardData.trendRange}</div></div>
+                      <div style={{display:'flex',alignItems:'center',gap:'6px',fontSize:'11.5px',color:'#7C828A',fontWeight:600}}><span style={{width:'18px',height:'3px',borderRadius:'2px',background:ACCENT,display:'inline-block'}}/> 위탁량</div>
+                    </div>
+                    <LineSVG pts={dashboardData.trend}/>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1.25fr 1fr 1fr',gap:'16px',marginTop:'16px'}}>
+                    <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'15px 18px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
+                      <div style={{fontSize:'14.5px',fontWeight:700,marginBottom:'16px'}}>폐기물 종류별 위탁량</div>
+                      <div style={{display:'flex',flexDirection:'column',gap:'13px'}}>
+                        {dashboardData.typeBars.map((b,i)=>(<div key={i}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:'12px',marginBottom:'5px'}}>
+                            <span style={{display:'flex',alignItems:'center',gap:'6px',fontWeight:600,color:'#3B4048'}}><span style={b.dot}/>{b.label}<span style={b.tagStyle}>{b.cat}</span></span>
+                            <span style={{color:'#6B717A',fontWeight:600}}>{b.valueLabel} t · {b.pctLabel}</span>
+                          </div>
+                          <div style={{height:'8px',background:'#F0F1F3',borderRadius:'5px',overflow:'hidden'}}><div style={{height:'100%',borderRadius:'5px',width:b.w,background:b.fill}}/></div>
+                        </div>))}
+                      </div>
+                    </div>
+                    <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'15px 18px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
+                      <div style={{fontSize:'14.5px',fontWeight:700,marginBottom:'6px'}}>처리업체별 비중</div>
+                      <div style={{display:'flex',justifyContent:'center',margin:'6px 0 12px'}}><DonutSVG data={dashboardData.compSel.map(c=>({value:c.total}))}/></div>
+                      <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
+                        {dashboardData.companyLegend.map((l,i)=>(<div key={i} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'12px'}}>
+                          <span style={{width:'9px',height:'9px',borderRadius:'3px',background:l.color,flexShrink:0,display:'inline-block'}}/>
+                          <span style={{flex:1,color:'#3B4048',fontWeight:600}}>{l.label}</span>
+                          <span style={{color:'#6B717A',fontWeight:600}}>{l.pctLabel}</span>
+                        </div>))}
+                      </div>
+                    </div>
+                    <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'15px 18px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
+                      <div style={{fontSize:'14.5px',fontWeight:700,marginBottom:'16px'}}>발생 부서별 위탁량</div>
+                      <div style={{display:'flex',flexDirection:'column',gap:'13px'}}>
+                        {dashboardData.deptBars.map((b,i)=>(<div key={i}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:'12px',marginBottom:'5px'}}>
+                            <span style={{fontWeight:600,color:'#3B4048'}}>{b.label}</span>
+                            <span style={{color:'#6B717A',fontWeight:600}}>{b.valueLabel} t · {b.pctLabel}</span>
+                          </div>
+                          <div style={{height:'8px',background:'#F0F1F3',borderRadius:'5px',overflow:'hidden'}}><div style={{height:'100%',borderRadius:'5px',width:b.w,background:ACCENT}}/></div>
+                        </div>))}
+                      </div>
+                      <div style={{marginTop:'14px',fontSize:'11px',color:'#AEB3BA',borderTop:'1px solid #F0F1F3',paddingTop:'11px'}}>월별 배분 비율 기준 산출 · 선택 기간</div>
+                    </div>
+                  </div>
+                </>
+              ):(
+                <div style={{marginTop:'32px',textAlign:'center',color:'#AEB3BA',fontSize:'13.5px',fontWeight:600}}>
+                  업로드된 데이터가 없습니다. <span onClick={()=>go('upload')} style={{color:ACCENT,cursor:'pointer'}}>데이터 업로드</span>에서 월별 데이터를 추가하세요.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══ ALLOCATION ══ */}
+          {isAlloc&&(
+            <div style={{maxWidth:'1240px',margin:'0 auto'}}>
+              {types.length===0?(
+                <div style={{textAlign:'center',marginTop:'60px',color:'#AEB3BA',fontSize:'13.5px',fontWeight:600}}>
+                  폐기물 종류 정보가 없습니다. <span onClick={()=>go('upload')} style={{color:ACCENT,cursor:'pointer'}}>데이터를 먼저 업로드</span>하면 종류가 자동으로 등록됩니다.
+                </div>
+              ):loadedSorted.length===0?(
+                <div style={{textAlign:'center',marginTop:'60px',color:'#AEB3BA',fontSize:'13.5px',fontWeight:600}}>
+                  업로드된 데이터가 없습니다. <span onClick={()=>go('upload')} style={{color:ACCENT,cursor:'pointer'}}>데이터 업로드</span>에서 월별 데이터를 추가하세요.
+                </div>
+              ):(
+                <>
+                  <div style={{display:'flex',gap:'16px',alignItems:'stretch',marginBottom:'16px',flexWrap:'wrap'}}>
+                    <div style={{flexShrink:0,background:'#fff',border:'1px solid #E8EAED',borderRadius:'14px',padding:'13px 16px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',display:'flex',alignItems:'center',gap:'10px'}}>
+                      <span style={{fontSize:'11.5px',color:'#9CA1A8',fontWeight:700}}>대상 월</span>
+                      <div onClick={prevMonthFn} className="month-nav-btn" style={{width:'30px',height:'32px',display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid #E2E5E9',borderRadius:'8px',cursor:'pointer',color:'#6B717A',fontSize:'16px'}}>‹</div>
+                      <select value={allocMonth} onChange={e=>setAllocMonth(e.target.value)} style={{fontFamily:'inherit',fontSize:'13px',fontWeight:700,color:'#2B2F36',border:'1px solid #E2E5E9',borderRadius:'8px',padding:'8px 11px',background:'#fff',cursor:'pointer',minWidth:'110px'}}>
+                        {monthOptions.map(m=><option key={m.ym} value={m.ym}>{m.label}</option>)}
+                      </select>
+                      <div onClick={nextMonthFn} className="month-nav-btn" style={{width:'30px',height:'32px',display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid #E2E5E9',borderRadius:'8px',cursor:'pointer',color:'#6B717A',fontSize:'16px'}}>›</div>
+                    </div>
+                    <div style={{flex:1,minWidth:'300px',background:'#fff',border:'1px solid #E8EAED',borderRadius:'14px',padding:'13px 18px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',display:'flex',alignItems:'center',gap:'14px'}}>
+                      <div style={invalid===0?{background:'#E7F5EE',color:'#1F8A5B',borderRadius:'10px',padding:'9px 14px',fontSize:'13px',fontWeight:800,whiteSpace:'nowrap'}:{background:'#FCEAEA',color:'#E5484D',borderRadius:'10px',padding:'9px 14px',fontSize:'13px',fontWeight:800,whiteSpace:'nowrap'}}>
+                        {invalid===0?'✓ 전체 100% 정합':invalid+'개 행 합계 오류'}
+                      </div>
+                      <div style={{fontSize:'12px',color:'#6B717A',lineHeight:1.5}}>선택한 월의 <b style={{color:'#3B4048'}}>종류(행)별 합계가 100%</b>여야 합니다 · <b style={{color:'#3B4048'}}>전체 {loadedSorted.length}개월 중 {okMonths}개월 100% 정합</b></div>
+                      <div onClick={applyAll} className="apply-all-btn" style={{marginLeft:'auto',fontSize:'12px',fontWeight:700,color:ACCENT,border:`1px solid ${ACCENT}`,borderRadius:'8px',padding:'8px 13px',cursor:'pointer',whiteSpace:'nowrap'}}>현재 비율 전체 월 적용</div>
+                    </div>
+                    <div style={{display:'flex',gap:'9px',alignItems:'center',background:'#fff',border:'1px solid #E8EAED',borderRadius:'14px',padding:'12px 16px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
+                      <span style={{fontSize:'11.5px',color:'#9CA1A8',fontWeight:700}}>프리셋</span>
+                      <select value={selectedPreset} onChange={loadPreset} style={{fontFamily:'inherit',fontSize:'12.5px',fontWeight:600,color:'#3B4048',border:'1px solid #E2E5E9',borderRadius:'8px',padding:'8px 11px',background:'#fff',cursor:'pointer',minWidth:'150px'}}>
+                        {presets.map(p=><option key={p.name} value={p.name}>{p.name}</option>)}
+                      </select>
+                      <input value={presetName} onChange={e=>setPresetName(e.target.value)} placeholder="새 프리셋 이름" style={{fontFamily:'inherit',fontSize:'12.5px',border:'1px solid #E2E5E9',borderRadius:'8px',padding:'8px 11px',width:'130px',color:'#3B4048'}}/>
+                      <div onClick={savePreset} style={{fontSize:'12.5px',fontWeight:700,color:'#fff',background:ACCENT,borderRadius:'8px',padding:'9px 15px',cursor:'pointer'}}>저장</div>
+                      <div onClick={resetMatrix} className="ghost-btn" style={{fontSize:'12.5px',fontWeight:600,color:'#6B717A',border:'1px solid #E2E5E9',borderRadius:'8px',padding:'8px 14px',cursor:'pointer'}}>초기화</div>
+                    </div>
+                  </div>
+                  <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',overflow:'hidden'}}>
+                    <div style={{overflowX:'auto'}}>
+                      <table style={{borderCollapse:'collapse',width:'100%',minWidth:'760px',fontSize:'13px'}}>
+                        <thead>
+                          <tr style={{background:'#FAFAFB'}}>
+                            <th style={{textAlign:'left',padding:'14px 18px',fontSize:'11.5px',fontWeight:700,color:'#888E96',letterSpacing:'.3px',position:'sticky',left:0,background:'#FAFAFB',borderBottom:'1px solid #E8EAED',minWidth:'170px'}}>폐기물 종류 \ 부서</th>
+                            {depts.map((d,j)=>(<th key={j} style={{padding:'12px 10px',fontSize:'12px',fontWeight:700,color:'#3B4048',borderBottom:'1px solid #E8EAED',borderLeft:'1px solid #F0F1F3',minWidth:'96px'}}>
+                              <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'5px'}}>{d}<span onClick={()=>removeDept(j)} className="remove-dept" style={{color:'#C7CCD3',cursor:'pointer',fontSize:'14px',lineHeight:1}}>×</span></div>
+                            </th>))}
+                            <th style={{padding:'12px 14px',fontSize:'11.5px',fontWeight:700,color:'#888E96',borderBottom:'1px solid #E8EAED',borderLeft:'1px solid #E8EAED',background:'#FAFAFB',minWidth:'78px'}}>행 합계</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allocRows.map(r=>(<tr key={r.i} className="alloc-row">
+                            <td style={{padding:'10px 18px',borderBottom:'1px solid #F2F3F5',position:'sticky',left:0,background:'#fff',fontWeight:600,color:'#2B2F36'}}>
+                              <span style={{display:'flex',alignItems:'center',gap:'8px'}}>{r.type}<span style={r.tagStyle}>{r.cat}</span></span>
+                            </td>
+                            {r.cells.map(c=>(<td key={c.j} style={{padding:'6px',borderBottom:'1px solid #F2F3F5',borderLeft:'1px solid #F7F8F9'}}>
+                              <input type="number" defaultValue={c.v} key={`${allocMonth}-${c.i}-${c.j}`} data-i={c.i} data-j={c.j} onChange={setCell} onBlur={saveMatrixOnBlur} className="cell-input" style={{width:'100%',textAlign:'center',fontFamily:'inherit',fontSize:'13px',fontWeight:600,color:'#2B2F36',border:'1px solid #EBEDEF',borderRadius:'7px',padding:'8px 4px',background:'#FBFBFC'}}/>
+                            </td>))}
+                            <td style={{padding:'8px 14px',borderBottom:'1px solid #F2F3F5',borderLeft:'1px solid #E8EAED',textAlign:'center'}}><span style={r.totalStyle}>{r.totalLabel}</span></td>
+                          </tr>))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:'12px',padding:'14px 18px',borderTop:'1px solid #E8EAED',background:'#FAFAFB'}}>
+                      <span style={{fontSize:'11.5px',color:'#9CA1A8',fontWeight:700}}>부서 추가</span>
+                      <input value={newDept} onChange={e=>setNewDept(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addDept()} placeholder="부서(팀)명 입력" style={{fontFamily:'inherit',fontSize:'12.5px',border:'1px solid #E2E5E9',borderRadius:'8px',padding:'8px 12px',width:'180px',color:'#3B4048',background:'#fff'}}/>
+                      <div onClick={addDept} style={{fontSize:'12.5px',fontWeight:700,color:ACCENT,border:`1px solid ${ACCENT}`,borderRadius:'8px',padding:'8px 15px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}><span style={{fontSize:'15px',lineHeight:1}}>+</span>추가</div>
+                      <span style={{marginLeft:'auto',fontSize:'11.5px',color:'#AEB3BA'}}>% 단위 입력 · 포커스 이동 시 자동 저장</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ══ UPLOAD ══ */}
+          {isUpload&&(
+            <div style={{maxWidth:'900px',margin:'0 auto'}}>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={e=>handleFileSelect(e.target.files)}/>
+
+              {/* Drop zone */}
+              <div
+                onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+                onDragLeave={()=>setDragOver(false)}
+                onDrop={e=>{e.preventDefault();setDragOver(false);handleFileSelect(e.dataTransfer.files);}}
+                onClick={()=>fileInputRef.current?.click()}
+                style={{border:`2px dashed ${parseError?'#E5484D':dragOver?ACCENT:selectedFile?'#1F8A5B':'#D5D9DE'}`,borderRadius:'16px',background:dragOver?'#FFF8F4':parseError?'#FFF5F5':selectedFile&&!parseError?'#F4FBF7':'#fff',padding:'32px',textAlign:'center',cursor:'pointer',transition:'all .15s',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}
+              >
+                <div style={{width:'56px',height:'56px',borderRadius:'16px',background:parseError?'#FCEAEA':selectedFile&&!parseError?'#E7F5EE':'#FDEEE6',color:parseError?'#E5484D':selectedFile&&!parseError?'#1F8A5B':ACCENT,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px'}}>
+                  <svg width={26} height={26} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 16V4"/><polyline points="7 9 12 4 17 9"/><path d="M4 20h16"/>
+                  </svg>
+                </div>
+                {parseError?(
+                  <div>
+                    <div style={{fontSize:'15px',fontWeight:800,color:'#E5484D'}}>파일을 읽을 수 없습니다</div>
+                    <div style={{fontSize:'12px',color:'#E5484D',marginTop:'4px',lineHeight:1.5,whiteSpace:'pre-wrap'}}>{parseError}</div>
+                  </div>
+                ):selectedFile&&parsedData?(
+                  <div>
+                    <div style={{fontSize:'15px',fontWeight:800,color:'#1F8A5B'}}>{selectedFile.name}</div>
+                    <div style={{fontSize:'12px',color:'#1F8A5B',marginTop:'4px'}}>파싱 완료 · {parsedData.rows.toLocaleString()}건 · 총 {fmt(parsedData.total)} t</div>
+                    {parsedData.detectedYm&&<div style={{fontSize:'11.5px',color:'#6B717A',marginTop:'3px'}}>감지된 월: <b>{parsedData.detectedYm}</b>{parsedData.multipleMonths?' (복수 월 감지 — 아래에서 확인)':''}</div>}
+                  </div>
+                ):selectedFile?(
+                  <div>
+                    <div style={{fontSize:'15px',fontWeight:800}}>파싱 중…</div>
+                  </div>
+                ):(
+                  <div>
+                    <div style={{fontSize:'16px',fontWeight:800}}>엑셀 파일을 끌어다 놓거나 클릭해 선택하세요</div>
+                    <div style={{fontSize:'12.5px',color:'#9CA1A8',marginTop:'6px'}}>정부 폐기물 적법처리시스템 월별 실적(.xlsx) · 배출자인계일자 · 처리자업체명 · 위탁량 컬럼 필요</div>
+                  </div>
+                )}
+                <div onClick={e=>{e.stopPropagation();fileInputRef.current?.click();}} style={{display:'inline-flex',alignItems:'center',gap:'7px',marginTop:'14px',background:ACCENT,color:'#fff',borderRadius:'999px',padding:'9px 18px',fontSize:'13px',fontWeight:700,cursor:'pointer',boxShadow:'0 2px 8px rgba(243,112,33,.25)'}}>
+                  {selectedFile?'다른 파일 선택':'파일 선택'}
+                </div>
+              </div>
+
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'16px',marginTop:'16px'}}>
+                {/* Month select */}
+                <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'22px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
+                  <div style={{fontSize:'14px',fontWeight:700,marginBottom:'14px'}}>대상 월 확인</div>
+                  <select value={uploadYm} onChange={e=>setUploadYm(e.target.value)} style={{width:'100%',fontFamily:'inherit',fontSize:'13.5px',fontWeight:700,color:'#2B2F36',border:'1px solid #E2E5E9',borderRadius:'9px',padding:'11px 13px',background:'#fff',cursor:'pointer'}}>
+                    {uploadOptions.map(o=><option key={o.ym} value={o.ym}>{o.label}</option>)}
+                  </select>
+                  <div
+                    onClick={parsedData?confirmUpload:()=>fileInputRef.current?.click()}
+                    style={{marginTop:'14px',textAlign:'center',background:parsedData?'#16181D':'#D3D7DC',color:'#fff',borderRadius:'10px',padding:'12px',fontSize:'13.5px',fontWeight:700,cursor:parsedData?'pointer':'default'}}
+                  >
+                    {parsedData?'누적 반영':'파일을 먼저 선택하세요'}
+                  </div>
+                  <div style={{marginTop:'13px',fontSize:'11.5px',color:'#9CA1A8',lineHeight:1.6}}>현재 누적 <b style={{color:'#3B4048'}}>{loadedSorted.length}개월</b> · {loadedSorted.length?`${loadedSorted[0]} ~ ${loadedSorted[loadedSorted.length-1]}`:'누적 데이터 없음'}</div>
+                </div>
+
+                {/* Parsed data preview */}
+                <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'22px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
+                  <div style={{fontSize:'14px',fontWeight:700,marginBottom:'14px'}}>파일 분석 결과</div>
+                  {parsedData?(
+                    <div style={{display:'flex',flexDirection:'column',gap:'10px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px'}}><span style={{color:'#6B717A'}}>총 위탁량</span><span style={{fontWeight:800,color:ACCENT}}>{fmt(parsedData.total)} t</span></div>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px'}}><span style={{color:'#6B717A'}}>데이터 행 수</span><span style={{fontWeight:700}}>{parsedData.rows.toLocaleString()} 건</span></div>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px'}}><span style={{color:'#6B717A'}}>폐기물 종류</span><span style={{fontWeight:700}}>{Object.keys(parsedData.typeCompanyData).length} 종</span></div>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px'}}><span style={{color:'#6B717A'}}>처리업체</span><span style={{fontWeight:700}}>{[...new Set(Object.values(parsedData.typeCompanyData).flatMap(cd=>Object.keys(cd)))].length} 곳</span></div>
+                      {(parsedNewTypes.length>0||parsedNewCompanies.length>0)&&<div style={{borderTop:'1px solid #F0F1F3',paddingTop:'10px',display:'flex',flexDirection:'column',gap:'6px'}}>
+                        {parsedNewTypes.length>0&&<div style={{fontSize:'12px',background:'#FDEEE6',borderRadius:'8px',padding:'8px 10px',color:'#C4500A'}}>
+                          <b>신규 종류 {parsedNewTypes.length}개 추가 예정</b><div style={{marginTop:'3px',color:'#A84400'}}>{parsedNewTypes.join(', ')}</div>
+                        </div>}
+                        {parsedNewCompanies.length>0&&<div style={{fontSize:'12px',background:'#EEF6FF',borderRadius:'8px',padding:'8px 10px',color:'#1A5FA8'}}>
+                          <b>신규 업체 {parsedNewCompanies.length}개 추가 예정</b><div style={{marginTop:'3px',color:'#1451A0'}}>{parsedNewCompanies.join(', ')}</div>
+                        </div>}
+                      </div>}
+                      <div style={{fontSize:'11.5px',color:upLoaded?'#C4500A':'#1F8A5B',background:upLoaded?'#FFF0E4':'#F0FBF5',borderRadius:'8px',padding:'9px 11px',lineHeight:1.5,marginTop:'2px'}}>
+                        {upLoaded?`⚠ ${uploadYm}은 이미 누적된 월입니다 — 덮어씁니다.`:`✓ ${uploadYm} 신규 반영 예정`}
+                      </div>
+                    </div>
+                  ):(
+                    <div style={{color:'#AEB3BA',fontSize:'13px',textAlign:'center',paddingTop:'24px'}}>파일을 선택하면 분석 결과가 표시됩니다</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ HISTORY ══ */}
+          {isHistory&&(
+            <div style={{maxWidth:'1100px',margin:'0 auto'}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'16px',marginBottom:'16px'}}>
+                <div style={{background:'#16181D',color:'#fff',borderRadius:'16px',padding:'20px 22px'}}>
+                  <div style={{fontSize:'12px',color:'#9DA2AA',fontWeight:600}}>전체 누적 건수</div>
+                  <div style={{fontSize:'30px',fontWeight:800,letterSpacing:'-1px',marginTop:'8px'}}>{fmtK(curTotalRows)}<span style={{fontSize:'14px',color:'#B6BBC2',fontWeight:600}}> 건</span></div>
+                </div>
+                <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'20px 22px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
+                  <div style={{fontSize:'12px',color:'#888E96',fontWeight:600}}>데이터 기간 범위</div>
+                  <div style={{fontSize:'22px',fontWeight:800,marginTop:'10px',color:'#1B1E24'}}>{histRange}</div>
+                </div>
+                <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'20px 22px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
+                  <div style={{fontSize:'12px',color:'#888E96',fontWeight:600}}>업로드 월 수</div>
+                  <div style={{fontSize:'22px',fontWeight:800,marginTop:'10px',color:'#1B1E24'}}>{loadedSorted.length}<span style={{fontSize:'13px',color:'#9CA1A8',fontWeight:600}}> 개월</span></div>
+                </div>
+              </div>
+              {uploadsList.length===0?(
+                <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'48px',textAlign:'center',color:'#AEB3BA',fontSize:'13.5px',fontWeight:600}}>
+                  업로드 이력이 없습니다. <span onClick={()=>go('upload')} style={{color:ACCENT,cursor:'pointer'}}>데이터 업로드</span>에서 시작하세요.
+                </div>
+              ):(
+                <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',overflow:'hidden'}}>
+                  <table style={{borderCollapse:'collapse',width:'100%',fontSize:'13px'}}>
+                    <thead><tr style={{background:'#FAFAFB'}}>
+                      <th style={{textAlign:'left',padding:'13px 20px',fontSize:'11.5px',fontWeight:700,color:'#888E96',borderBottom:'1px solid #E8EAED'}}>대상 월</th>
+                      <th style={{textAlign:'left',padding:'13px 16px',fontSize:'11.5px',fontWeight:700,color:'#888E96',borderBottom:'1px solid #E8EAED'}}>업로드 일시</th>
+                      <th style={{textAlign:'right',padding:'13px 16px',fontSize:'11.5px',fontWeight:700,color:'#888E96',borderBottom:'1px solid #E8EAED'}}>인식 행 수</th>
+                      <th style={{textAlign:'center',padding:'13px 16px',fontSize:'11.5px',fontWeight:700,color:'#888E96',borderBottom:'1px solid #E8EAED'}}>상태</th>
+                      <th style={{textAlign:'right',padding:'13px 20px',fontSize:'11.5px',fontWeight:700,color:'#888E96',borderBottom:'1px solid #E8EAED'}}>관리</th>
+                    </tr></thead>
+                    <tbody>
+                      {uploadsList.map((u,i)=>(<tr key={i} className="hist-row">
+                        <td style={{padding:'12px 20px',borderBottom:'1px solid #F2F3F5',fontWeight:700,color:'#2B2F36'}}>{u.ym}</td>
+                        <td style={{padding:'12px 16px',borderBottom:'1px solid #F2F3F5',color:'#6B717A'}}>{u.at}</td>
+                        <td style={{padding:'12px 16px',borderBottom:'1px solid #F2F3F5',textAlign:'right',fontWeight:600,color:'#3B4048'}}>{u.rows} 건</td>
+                        <td style={{padding:'12px 16px',borderBottom:'1px solid #F2F3F5',textAlign:'center'}}><span style={{fontSize:'11px',fontWeight:700,color:'#1F8A5B',background:'#E7F5EE',borderRadius:'999px',padding:'4px 11px'}}>정상</span></td>
+                        <td style={{padding:'12px 20px',borderBottom:'1px solid #F2F3F5',textAlign:'right'}}>
+                          <span style={{display:'inline-flex',gap:'8px'}}>
+                            <span onClick={u.onReupload} className="ghost-btn" style={{fontSize:'12px',fontWeight:600,color:'#6B717A',border:'1px solid #E2E5E9',borderRadius:'7px',padding:'6px 11px',cursor:'pointer'}}>재업로드</span>
+                            <span onClick={u.onDelete} className="danger-btn" style={{fontSize:'12px',fontWeight:600,color:'#E5484D',border:'1px solid #F3C6C7',borderRadius:'7px',padding:'6px 11px',cursor:'pointer'}}>삭제</span>
+                          </span>
+                        </td>
+                      </tr>))}
+                    </tbody>
+                  </table>
+                  <div style={{padding:'13px 20px',borderTop:'1px solid #E8EAED',background:'#FAFAFB',fontSize:'11.5px',color:'#AEB3BA'}}>월을 삭제하거나 추가하면 요약 대시보드의 조회 가능 기간도 자동으로 갱신됩니다.</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══ DESIGN SYSTEM ══ */}
+          {isSystem&&(
+            <div style={{maxWidth:'1100px',margin:'0 auto'}}>
+              <div style={{background:'#16181D',borderRadius:'18px',padding:'30px 32px',color:'#fff',marginBottom:'18px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <div style={{fontSize:'11px',fontWeight:700,letterSpacing:'1.5px',color:ACCENT}}>VISUAL GUIDE</div>
+                  <div style={{fontSize:'26px',fontWeight:800,marginTop:'8px',letterSpacing:'-.5px'}}>폐기물 실적 분석 도구 · 디자인 시스템</div>
+                  <div style={{fontSize:'13px',color:'#9DA2AA',marginTop:'8px',lineHeight:1.6,maxWidth:'560px'}}>데스크톱(1440px+) 업무 도구를 위한 절제된 기업용 톤. 오렌지 액센트 + 차콜 내비 + 화이트 카드 시스템.</div>
+                </div>
+                <div onClick={()=>go('dashboard')} style={{background:ACCENT,color:'#fff',borderRadius:'11px',padding:'13px 20px',fontSize:'13.5px',fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',boxShadow:'0 4px 14px rgba(243,112,33,.3)'}}>요약 대시보드 보기 →</div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'18px'}}>
+                <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
+                  <div style={{fontSize:'15px',fontWeight:700,marginBottom:'16px'}}>컬러 팔레트</div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                    {palette.map((c,i)=>(<div key={i} style={{display:'flex',alignItems:'center',gap:'11px'}}>
+                      <div style={{width:'42px',height:'42px',borderRadius:'10px',flexShrink:0,background:c.hex,border:'1px solid rgba(0,0,0,.06)'}}/>
+                      <div style={{lineHeight:1.3}}><div style={{fontSize:'12.5px',fontWeight:700,color:'#2B2F36'}}>{c.name}</div><div style={{fontSize:'11px',color:'#9CA1A8',fontFamily:'ui-monospace,Menlo,monospace'}}>{c.hex}</div></div>
+                    </div>))}
+                  </div>
+                </div>
+                <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
+                  <div style={{fontSize:'15px',fontWeight:700,marginBottom:'16px'}}>타이포그래피 · Pretendard</div>
+                  <div style={{display:'flex',flexDirection:'column',gap:'14px'}}>
+                    <div style={{display:'flex',alignItems:'baseline',gap:'14px',borderBottom:'1px solid #F2F3F5',paddingBottom:'12px'}}><span style={{fontSize:'11px',color:'#9CA1A8',width:'96px',flexShrink:0}}>Display / 46·800</span><span style={{fontSize:'32px',fontWeight:800,letterSpacing:'-1px'}}>807.3 t</span></div>
+                    <div style={{display:'flex',alignItems:'baseline',gap:'14px',borderBottom:'1px solid #F2F3F5',paddingBottom:'12px'}}><span style={{fontSize:'11px',color:'#9CA1A8',width:'96px',flexShrink:0}}>Title / 18·800</span><span style={{fontSize:'18px',fontWeight:800}}>요약 대시보드</span></div>
+                    <div style={{display:'flex',alignItems:'baseline',gap:'14px',borderBottom:'1px solid #F2F3F5',paddingBottom:'12px'}}><span style={{fontSize:'11px',color:'#9CA1A8',width:'96px',flexShrink:0}}>Body / 13·500</span><span style={{fontSize:'13px',fontWeight:500,color:'#3B4048'}}>처리업체별 위탁량 비중과 추이를 분석합니다.</span></div>
+                    <div style={{display:'flex',alignItems:'baseline',gap:'14px'}}><span style={{fontSize:'11px',color:'#9CA1A8',width:'96px',flexShrink:0}}>Label / 11·600</span><span style={{fontSize:'11px',fontWeight:600,color:'#888E96',letterSpacing:'.3px'}}>선택 조건 총 위탁량</span></div>
+                  </div>
+                </div>
+                <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',display:'flex',alignItems:'center',gap:'24px'}}>
+                  <div style={{flexShrink:0}}><GaugeSVG/></div>
+                  <div>
+                    <div style={{fontSize:'15px',fontWeight:700,marginBottom:'8px'}}>데이터 시각화</div>
+                    <div style={{fontSize:'12.5px',color:'#6B717A',lineHeight:1.7}}>원형 게이지·도넛, 라인·막대 차트로 위탁량을 표현합니다. 라인 차트를 추이의 기본으로, 도넛/막대는 구성비에 사용합니다.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ PLACEHOLDER ══ */}
+          {isPlaceholder&&(
+            <div style={{maxWidth:'760px',margin:'48px auto 0'}}>
+              <div style={{background:'#fff',border:'1px solid #E8EAED',borderRadius:'18px',padding:'48px 44px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',textAlign:'center'}}>
+                <div style={{width:'64px',height:'64px',borderRadius:'16px',background:'#FDEEE6',color:ACCENT,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px'}}><Icon name={screen} size={30}/></div>
+                <div style={{fontSize:'20px',fontWeight:800,letterSpacing:'-.3px'}}>{(PLACEHOLDER[screen]||{}).title}</div>
+                <div style={{fontSize:'13.5px',color:'#6B717A',lineHeight:1.7,marginTop:'12px',maxWidth:'480px',marginLeft:'auto',marginRight:'auto'}}>{(PLACEHOLDER[screen]||{}).desc}</div>
+                <div style={{display:'inline-flex',alignItems:'center',gap:'8px',marginTop:'24px',background:'#F3F4F6',borderRadius:'999px',padding:'9px 16px',fontSize:'12px',color:'#7C828A',fontWeight:600}}>
+                  <span style={{width:'7px',height:'7px',borderRadius:'50%',background:'#C7CCD3',display:'inline-block'}}/>이번 디자인 범위: 디자인 시스템 · 요약 대시보드 · 발생 부서 배분 입력
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </main>
+
+      {openFilter&&<div onClick={closeFilter} style={{position:'fixed',inset:0,zIndex:20}}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
