@@ -74,6 +74,25 @@ function buildMonths(){const o=[];[2024,2025,2026,2027].forEach(y=>{for(let m=1;
 const MONTHS = buildMonths();
 
 function defaultMatrix(numTypes,numCols){return Array.from({length:numTypes},()=>new Array(numCols).fill(0));}
+function deriveMatrix(types,depts,tcd,ct){
+  return types.map((type,ti)=>{
+    const by=tcd[type.name]||{},tot=Object.values(by).reduce((s,v)=>s+v,0);
+    return depts.map((_,di)=>{
+      if(!tot)return 0;
+      return Object.keys(by).reduce((s,cn)=>s+((ct[type.name]?.[cn]?.[di])||0),0)/tot*100;
+    });
+  });
+}
+function deriveCompanyTonnages(types,tcd,matrix){
+  const res={};
+  types.forEach((type,ti)=>{
+    const by=tcd[type.name]||{};
+    const pcts=matrix[ti]||[];
+    res[type.name]={};
+    Object.entries(by).forEach(([cn,coTot])=>{res[type.name][cn]=pcts.map(p=>coTot*(p||0)/100);});
+  });
+  return res;
+}
 function atFor(ym){const[y,mo]=ym.split('-').map(Number);const ny=mo===12?y+1:y,nm=mo===12?1:mo+1;return`${ny}-${String(nm).padStart(2,'0')}-05`;}
 function clampYm(loaded,ym){if(!loaded.length)return ym;const mn=loaded[0],mx=loaded[loaded.length-1];return ym<mn?mn:ym>mx?mx:ym;}
 function fmt(n){return Number(n).toLocaleString('ko-KR',{minimumFractionDigits:1,maximumFractionDigits:1});}
@@ -181,7 +200,11 @@ async function fsLoad(){
   });
   loaded.sort();
   const matrixByMonth={};
-  aSnap.forEach(d=>{matrixByMonth[d.id]=d.data().matrix;});
+  const companyTonnagesByMonth={};
+  aSnap.forEach(d=>{
+    matrixByMonth[d.id]=d.data().matrix;
+    if(d.data().companyTonnages)companyTonnagesByMonth[d.id]=d.data().companyTonnages;
+  });
   let depts=INIT_DEPTS.slice(),types=[],companies=[],presets=[];
   if(sSnap.exists()){
     const s=sSnap.data();
@@ -207,13 +230,20 @@ async function fsLoad(){
       sd(d2(db,'settings','main'),{depts,presets,types,companies}).catch(()=>{});
     }
   }
-  return{monthData,uploads,loaded,matrixByMonth,depts,types,companies,presets};
+  // Derive companyTonnages for months that only have matrix
+  loaded.forEach(ym=>{
+    if(!companyTonnagesByMonth[ym]&&matrixByMonth[ym]){
+      const tcd=monthData[ym]?.typeCompanyData||{};
+      companyTonnagesByMonth[ym]=deriveCompanyTonnages(types,tcd,matrixByMonth[ym]);
+    }
+  });
+  return{monthData,uploads,loaded,matrixByMonth,companyTonnagesByMonth,depts,types,companies,presets};
 }
 async function fsSaveMonth(ym,typeCompanyData,rows,at){
   const{doc,setDoc}=FS();await setDoc(doc(DB(),'months',ym),{typeCompanyData,rows,at});
 }
 async function fsDeleteMonth(ym){const{doc,deleteDoc}=FS();await deleteDoc(doc(DB(),'months',ym));}
-async function fsSaveAlloc(ym,matrix){const{doc,setDoc}=FS();await setDoc(doc(DB(),'allocations',ym),{matrix});}
+async function fsSaveAlloc(ym,matrix,companyTonnages){const{doc,setDoc}=FS();const data={matrix};if(companyTonnages!==undefined)data.companyTonnages=companyTonnages;await setDoc(doc(DB(),'allocations',ym),data);}
 async function fsSaveSettings(depts,presets,types,companies){
   const{doc,setDoc}=FS();await setDoc(doc(DB(),'settings','main'),{depts,presets,types,companies});
 }
@@ -324,6 +354,7 @@ function App(){
 
   // Allocation
   const [matrixByMonth,setMatrixByMonth]=useState({});
+  const [companyTonnagesByMonth,setCompanyTonnagesByMonth]=useState({});
   const [allocMonth,setAllocMonth]=useState('');
   const [depts,setDepts]=useState(()=>INIT_DEPTS.slice());
   const [presets,setPresets]=useState([]);
@@ -333,6 +364,7 @@ function App(){
 
   // Stable refs
   const matrixRef=useRef(matrixByMonth);matrixRef.current=matrixByMonth;
+  const companyTonnagesRef=useRef(companyTonnagesByMonth);companyTonnagesRef.current=companyTonnagesByMonth;
   const deptsRef=useRef(depts);deptsRef.current=depts;
   const presetsRef=useRef(presets);presetsRef.current=presets;
   const typesRef=useRef(types);typesRef.current=types;
@@ -349,6 +381,7 @@ function App(){
         setUploads(data.uploads);
         setLoaded(data.loaded);
         setMatrixByMonth(data.matrixByMonth);
+        setCompanyTonnagesByMonth(data.companyTonnagesByMonth||{});
         setDepts(data.depts);
         setTypes(data.types);
         setCompanies(data.companies);
@@ -493,7 +526,13 @@ function App(){
       });
       if(Object.keys(updates).length){
         setMatrixByMonth(p=>({...p,...updates}));
-        await Promise.all(Object.keys(updates).map(m=>fsSaveAlloc(m,updates[m])));
+        const ctUpdates={};
+        Object.entries(updates).forEach(([m,mat])=>{
+          const mtcd=monthData[m]?.typeCompanyData||tcd;
+          ctUpdates[m]=companyTonnagesRef.current[m]||deriveCompanyTonnages(updatedTypes,mtcd,mat);
+        });
+        setCompanyTonnagesByMonth(p=>({...p,...ctUpdates}));
+        await Promise.all(Object.keys(updates).map(m=>fsSaveAlloc(m,updates[m],ctUpdates[m])));
       }
     }
 
@@ -513,6 +552,7 @@ function App(){
     });
     setUploads(p=>{const o={...p};delete o[ym];return o;});
     setMonthData(p=>{const o={...p};delete o[ym];return o;});
+    setCompanyTonnagesByMonth(p=>{const o={...p};delete o[ym];return o;});
     await fsDeleteMonth(ym);
   };
 
@@ -521,31 +561,39 @@ function App(){
   const prevMonthFn=()=>setAllocMonth(a=>{const s=loadedRef.current.slice().sort();const i=s.indexOf(a);return i>0?s[i-1]:a;});
   const nextMonthFn=()=>setAllocMonth(a=>{const s=loadedRef.current.slice().sort();const i=s.indexOf(a);return i<s.length-1?s[i+1]:a;});
 
-  const setCell=e=>{
-    const i=+e.target.dataset.i,j=+e.target.dataset.j;
-    let v=parseFloat(e.target.value);if(isNaN(v))v=0;v=Math.max(0,Math.min(100,v));
-    setMatrixByMonth(p=>{const o={...p};const m=o[allocMonth]?o[allocMonth].map(r=>r.slice()):defaultMatrix(types.length,depts.length);m[i][j]=v;o[allocMonth]=m;return o;});
+  const setCompanyTonnageCell=e=>{
+    const typeName=e.target.dataset.typename;
+    const coName=e.target.dataset.coname;
+    const j=+e.target.dataset.j;
+    let v=parseFloat(e.target.value);if(isNaN(v))v=0;v=Math.max(0,v);
+    setCompanyTonnagesByMonth(p=>{
+      const o={...p,[allocMonth]:{...(p[allocMonth]||{})}};
+      o[allocMonth][typeName]={...(o[allocMonth][typeName]||{})};
+      const row=(o[allocMonth][typeName][coName]||new Array(deptsRef.current.length).fill(0)).slice();
+      row[j]=v;
+      o[allocMonth][typeName][coName]=row;
+      return o;
+    });
   };
 
-  const setTonnageCell=e=>{
-    const i=+e.target.dataset.i,j=+e.target.dataset.j;
-    const typeTotal=parseFloat(e.target.dataset.total)||0;
-    let tonnage=parseFloat(e.target.value);if(isNaN(tonnage))tonnage=0;tonnage=Math.max(0,tonnage);
-    const newPct=typeTotal>0?Math.min(100,tonnage/typeTotal*100):0;
-    setMatrixByMonth(p=>{const o={...p};const m=o[allocMonth]?o[allocMonth].map(r=>r.slice()):defaultMatrix(types.length,depts.length);m[i][j]=newPct;o[allocMonth]=m;return o;});
-  };
-
-  const saveMatrixOnBlur=useCallback(async()=>{
-    const matrix=matrixRef.current[allocMonth];
-    if(!matrix)return;
-    await fsSaveAlloc(allocMonth,matrix);
-  },[allocMonth]);
-
+  const saveCompanyTonnageOnBlur=useCallback(async()=>{
+    const ct=companyTonnagesRef.current[allocMonth]||{};
+    const tcd=monthData[allocMonth]?.typeCompanyData||{};
+    const matrix=deriveMatrix(typesRef.current,deptsRef.current,tcd,ct);
+    setMatrixByMonth(p=>({...p,[allocMonth]:matrix}));
+    await fsSaveAlloc(allocMonth,matrix,ct);
+  },[allocMonth,monthData]);
 
   const resetMatrix=async()=>{
     const matrix=defaultMatrix(types.length,depts.length);
+    const ct={};
+    Object.entries(monthData[allocMonth]?.typeCompanyData||{}).forEach(([tn,by])=>{
+      ct[tn]={};
+      Object.keys(by).forEach(cn=>{ct[tn][cn]=new Array(depts.length).fill(0);});
+    });
     setMatrixByMonth(p=>({...p,[allocMonth]:matrix}));
-    await fsSaveAlloc(allocMonth,matrix);
+    setCompanyTonnagesByMonth(p=>({...p,[allocMonth]:ct}));
+    await fsSaveAlloc(allocMonth,matrix,ct);
   };
 
   const addDept=async()=>{
@@ -555,8 +603,17 @@ function App(){
     const newMat={};
     Object.keys(matrixRef.current).forEach(ym=>{newMat[ym]=matrixRef.current[ym].map(r=>[...r,0]);});
     setMatrixByMonth(newMat);
+    const newCTM={};
+    Object.entries(companyTonnagesRef.current).forEach(([ym,typeMap])=>{
+      newCTM[ym]={};
+      Object.entries(typeMap).forEach(([tn,coMap])=>{
+        newCTM[ym][tn]={};
+        Object.entries(coMap).forEach(([cn,tons])=>{newCTM[ym][tn][cn]=[...tons,0];});
+      });
+    });
+    setCompanyTonnagesByMonth(newCTM);
     setNewDept('');
-    await Promise.all([fsSaveSettings(newDepts,presetsRef.current,typesRef.current,companiesRef.current),...Object.keys(newMat).map(ym=>fsSaveAlloc(ym,newMat[ym]))]);
+    await Promise.all([fsSaveSettings(newDepts,presetsRef.current,typesRef.current,companiesRef.current),...Object.keys(newMat).map(ym=>fsSaveAlloc(ym,newMat[ym],newCTM[ym]||companyTonnagesRef.current[ym]))]);
   };
 
   const removeDept=async j=>{
@@ -566,7 +623,16 @@ function App(){
     const newMat={};
     Object.keys(matrixRef.current).forEach(ym=>{newMat[ym]=matrixRef.current[ym].map(r=>r.filter((_,k)=>k!==j));});
     setMatrixByMonth(newMat);
-    await Promise.all([fsSaveSettings(newDepts,presetsRef.current,typesRef.current,companiesRef.current),...Object.keys(newMat).map(ym=>fsSaveAlloc(ym,newMat[ym]))]);
+    const newCTM={};
+    Object.entries(companyTonnagesRef.current).forEach(([ym,typeMap])=>{
+      newCTM[ym]={};
+      Object.entries(typeMap).forEach(([tn,coMap])=>{
+        newCTM[ym][tn]={};
+        Object.entries(coMap).forEach(([cn,tons])=>{newCTM[ym][tn][cn]=tons.filter((_,k)=>k!==j);});
+      });
+    });
+    setCompanyTonnagesByMonth(newCTM);
+    await Promise.all([fsSaveSettings(newDepts,presetsRef.current,typesRef.current,companiesRef.current),...Object.keys(newMat).map(ym=>fsSaveAlloc(ym,newMat[ym],newCTM[ym]||companyTonnagesRef.current[ym]))]);
   };
 
   const savePreset=async()=>{
@@ -582,8 +648,11 @@ function App(){
     setSelectedPreset(name);
     const cols=deptsRef.current.length;
     const matrix=p.matrix.map(r=>{const row=r.slice(0,cols);while(row.length<cols)row.push(0);return row;});
+    const tcd=monthData[allocMonth]?.typeCompanyData||{};
+    const ct=deriveCompanyTonnages(typesRef.current,tcd,matrix);
     setMatrixByMonth(prev=>({...prev,[allocMonth]:matrix}));
-    await fsSaveAlloc(allocMonth,matrix);
+    setCompanyTonnagesByMonth(prev=>({...prev,[allocMonth]:ct}));
+    await fsSaveAlloc(allocMonth,matrix,ct);
   };
 
   // ---- Derived state ----
@@ -713,42 +782,47 @@ function App(){
     return types.map((_,i)=>i).filter(i=>present.has(types[i]?.name));
   },[allocMonth,monthData,types]);
 
-  const curMatrix=allocMonth?(matrixByMonth[allocMonth]||defaultMatrix(types.length,depts.length)):defaultMatrix(types.length,depts.length);
-
-  // okMonths: a month is valid when all of its own types' pct rows sum to 100
+  // okMonths: valid when every company's dept tonnage sum ≈ company total
   const okMonths=useMemo(()=>loadedSorted.filter(ym=>{
     const present=new Set(Object.keys(monthData[ym]?.typeCompanyData||{}));
     const idxs=types.map((_,i)=>i).filter(i=>present.has(types[i]?.name));
     if(!idxs.length)return false;
-    const mat=matrixByMonth[ym]||defaultMatrix(types.length,depts.length);
-    return idxs.every(i=>Math.round((mat[i]||[]).reduce((a,b)=>a+(+b||0),0))===100);
-  }).length,[loadedSorted,matrixByMonth,types,depts,monthData]);
+    const ct=companyTonnagesByMonth[ym]||{};
+    const tcd=monthData[ym]?.typeCompanyData||{};
+    return idxs.every(i=>{
+      const tn=types[i]?.name;
+      const by=tcd[tn]||{};
+      if(!Object.keys(by).length)return false;
+      return Object.entries(by).every(([cn,coTot])=>{
+        if(coTot<=0)return true;
+        const tons=ct[tn]?.[cn]||[];
+        const sum=tons.reduce((s,v)=>s+(+v||0),0);
+        return Math.abs(sum-coTot)<0.05;
+      });
+    });
+  }).length,[loadedSorted,companyTonnagesByMonth,types,monthData]);
 
   const allocRows=allocMonthTypeIndices.map(i=>{
-    const row=curMatrix[i]||new Array(depts.length).fill(0);
     const type=types[i]||{name:`폐기물 ${i+1}`,cat:'일반'};
     const tcd=monthData[allocMonth]?.typeCompanyData||{};
     const typeName=types[i]?.name;
     const byCompany=tcd[typeName]||{};
     const typeTotal=Object.values(byCompany).reduce((s,v)=>s+v,0);
-    const pctSum=row.reduce((a,b)=>a+(+b||0),0);
+    const monthCT=companyTonnagesByMonth[allocMonth]||{};
     const coRows=Object.entries(byCompany).map(([coName,coTotal])=>{
-      const tonnageCells=row.map((v,j)=>({j,tonnage:coTotal>0?(+v||0)/100*coTotal:0}));
-      const deptSum=tonnageCells.reduce((s,c)=>s+c.tonnage,0);
-      const coOk=coTotal>0?Math.abs(deptSum-coTotal)<0.05:Math.round(pctSum)===100;
-      return{name:coName,total:coTotal,tonnageCells,deptSum,coOk,
+      const savedTons=monthCT[typeName]?.[coName]||new Array(depts.length).fill(0);
+      const cells=savedTons.map((ton,j)=>({typeName,coName,j,ton:+ton||0}));
+      const deptSum=cells.reduce((s,c)=>s+c.ton,0);
+      const coOk=coTotal>0?Math.abs(deptSum-coTotal)<0.05:false;
+      return{name:coName,total:coTotal,cells,deptSum,coOk,
         label:coTotal>0?`${fmt(deptSum)} / ${fmt(coTotal)} t`:'—',
         labelStyle:coOk?{fontSize:'12px',fontWeight:700,color:'#1F8A5B',background:'#E7F5EE',borderRadius:'6px',padding:'4px 9px',whiteSpace:'nowrap'}:{fontSize:'12px',fontWeight:700,color:'#E5484D',background:'#FCEAEA',borderRadius:'6px',padding:'4px 9px',whiteSpace:'nowrap'}
       };
     });
-    const allCoOk=coRows.length>0?coRows.every(co=>co.coOk):Math.round(pctSum)===100;
-    return{i,type:type.name,cat:type.cat,tagStyle:tagStyle(type.cat),cells:row.map((v,j)=>({i,j,v})),
-      typeTotal,allCoOk,coRows,
-      pctLabel:Math.round(pctSum)+'%',
-      pctLabelStyle:{fontSize:'11.5px',fontWeight:600,color:'#9CA1A8'}
-    };
+    const allCoOk=coRows.length>0&&coRows.every(co=>co.coOk);
+    return{i,type:type.name,cat:type.cat,tagStyle:tagStyle(type.cat),typeTotal,coRows,allCoOk};
   });
-  const invalid=allocRows.filter(r=>!r.allCoOk).length;
+  const invalid=allocRows.reduce((s,r)=>s+r.coRows.filter(co=>!co.coOk).length,0);
 
   // ---- Upload derived ----
   const curTotalRows=loadedSorted.reduce((s,ym)=>s+(uploads[ym]||{}).rows||0,0);
@@ -766,7 +840,7 @@ function App(){
   const built=['dashboard','alloc','upload','history'];
   const navStyle=active=>active?{display:'flex',alignItems:'center',gap:'11px',padding:'10px 12px',borderRadius:'9px',cursor:'pointer',fontSize:'13px',fontWeight:700,color:'#fff',background:ACCENT+'26',boxShadow:'inset 3px 0 0 '+ACCENT}:{display:'flex',alignItems:'center',gap:'11px',padding:'10px 12px',borderRadius:'9px',cursor:'pointer',fontSize:'13px',fontWeight:600,color:'#A7ACB4'};
   const fbtn=active=>({display:'flex',alignItems:'center',gap:'7px',fontSize:'12.5px',fontWeight:700,color:'#2B2F36',background:'#fff',border:`1px solid ${active?ACCENT:'#E2E5E9'}`,borderRadius:'9px',padding:'8px 13px',cursor:'pointer'});
-  const META={system:{title:'디자인 시스템',sub:'폐기물 실적 분석 도구 · 비주얼 가이드'},dashboard:{title:'요약 대시보드',sub:'조회 조건 기준 위탁량 분석'},alloc:{title:'발생 부서 배분 비율 입력',sub:'월별 · 폐기물 종류 × 부서 배분(%) · 행 합계 100%'},upload:{title:'데이터 업로드',sub:'월별 엑셀 업로드 → 누적 반영'},history:{title:'누적 데이터 관리',sub:'업로드 이력 · 누적 건수 · 기간 범위'}};
+  const META={system:{title:'디자인 시스템',sub:'폐기물 실적 분석 도구 · 비주얼 가이드'},dashboard:{title:'요약 대시보드',sub:'조회 조건 기준 위탁량 분석'},alloc:{title:'발생 부서 배분 위탁량 입력',sub:'월별 · 처리업체별 부서 위탁량 입력 · 업체별 합계 검증'},upload:{title:'데이터 업로드',sub:'월별 엑셀 업로드 → 누적 반영'},history:{title:'누적 데이터 관리',sub:'업로드 이력 · 누적 건수 · 기간 범위'}};
   const meta=META[screen]||{title:(PLACEHOLDER[screen]||{}).title||'',sub:'이번 디자인 범위 외 화면 (예정)'};
   const palette=[{name:'한화 오렌지 (액센트)',hex:ACCENT},{name:'차콜 (내비)',hex:'#16181D'},{name:'잉크',hex:'#1B1E24'},{name:'서피스',hex:'#F5F6F8'},{name:'보더',hex:'#E8EAED'},{name:'화이트',hex:'#FFFFFF'}];
   const isDashboard=screen==='dashboard',isAlloc=screen==='alloc',isSystem=screen==='system',isUpload=screen==='upload',isHistory=screen==='history',isPlaceholder=!!PLACEHOLDER[screen];
@@ -1007,9 +1081,9 @@ function App(){
                     </div>
                     <div style={{flex:1,minWidth:'300px',background:'#fff',border:'1px solid #E8EAED',borderRadius:'14px',padding:'13px 18px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',display:'flex',alignItems:'center',gap:'14px'}}>
                       <div style={invalid===0?{background:'#E7F5EE',color:'#1F8A5B',borderRadius:'10px',padding:'9px 14px',fontSize:'13px',fontWeight:800,whiteSpace:'nowrap'}:{background:'#FCEAEA',color:'#E5484D',borderRadius:'10px',padding:'9px 14px',fontSize:'13px',fontWeight:800,whiteSpace:'nowrap'}}>
-                        {invalid===0?'✓ 전체 정합':invalid+'개 행 합계 오류'}
+                        {invalid===0?'✓ 전체 정합':invalid+'개 업체 합계 오류'}
                       </div>
-                      <div style={{fontSize:'12px',color:'#6B717A',lineHeight:1.5}}>종류별 <b style={{color:'#3B4048'}}>부서 배분 합계 = 100%</b>여야 합니다 · <b style={{color:'#3B4048'}}>전체 {loadedSorted.length}개월 중 {okMonths}개월 정합</b></div>
+                      <div style={{fontSize:'12px',color:'#6B717A',lineHeight:1.5}}>업체별 <b style={{color:'#3B4048'}}>부서 위탁량 합계 = 해당 업체 위탁량</b>이어야 합니다 · <b style={{color:'#3B4048'}}>전체 {loadedSorted.length}개월 중 {okMonths}개월 정합</b></div>
                     </div>
                     <div style={{display:'flex',gap:'9px',alignItems:'center',background:'#fff',border:'1px solid #E8EAED',borderRadius:'14px',padding:'12px 16px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
                       <span style={{fontSize:'11.5px',color:'#9CA1A8',fontWeight:700}}>프리셋</span>
@@ -1037,29 +1111,23 @@ function App(){
                         <tbody>
                           {allocRows.map(r=>(
                             <React.Fragment key={r.i}>
-                              <tr className="alloc-row">
-                                <td style={{padding:'10px 18px 8px',borderBottom:'none',position:'sticky',left:0,background:'#fff',fontWeight:600,color:'#2B2F36'}}>
-                                  <span style={{display:'flex',alignItems:'center',gap:'8px'}}>{r.type}<span style={r.tagStyle}>{r.cat}</span></span>
-                                  {r.typeTotal>0&&<div style={{fontSize:'10.5px',color:'#AEB3BA',marginTop:'2px'}}>총 {fmt(r.typeTotal)} t</div>}
-                                </td>
-                                <td style={{padding:'10px 14px 8px',borderBottom:'none',borderLeft:'1px solid #E8EAED',fontSize:'11px',color:'#C5C9CE',fontStyle:'italic',background:'#fff'}}>배분 %</td>
-                                {r.cells.map(c=>(<td key={c.j} style={{padding:'6px',borderBottom:'none',borderLeft:'1px solid #F7F8F9'}}>
-                                  <input type="number" defaultValue={c.v} key={`pct-${allocMonth}-${c.i}-${c.j}`} data-i={c.i} data-j={c.j} onChange={setCell} onBlur={saveMatrixOnBlur} className="cell-input" style={{width:'100%',textAlign:'center',fontFamily:'inherit',fontSize:'13px',fontWeight:600,color:'#2B2F36',border:'1px solid #EBEDEF',borderRadius:'7px',padding:'8px 4px',background:'#FBFBFC'}}/>
-                                </td>))}
-                                <td style={{padding:'6px 14px',borderBottom:'none',borderLeft:'1px solid #E8EAED',textAlign:'center'}}><span style={r.pctLabelStyle}>{r.pctLabel}</span></td>
-                              </tr>
                               {r.coRows.map((co,ci)=>(
                                 <tr key={co.name} className="alloc-row">
-                                  <td style={{padding:'2px 18px',borderBottom:ci===r.coRows.length-1?'1px solid #F2F3F5':'1px solid #F8F9FA',position:'sticky',left:0,background:'#F9FAFB'}}></td>
-                                  <td style={{padding:'5px 14px',borderBottom:ci===r.coRows.length-1?'1px solid #F2F3F5':'1px solid #F8F9FA',borderLeft:'1px solid #E8EAED',background:'#F9FAFB',fontSize:'11.5px',fontWeight:600,color:'#555B63',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'130px'}}>
+                                  {ci===0&&(
+                                    <td rowSpan={r.coRows.length} style={{padding:'12px 18px',borderBottom:'1px solid #F2F3F5',position:'sticky',left:0,background:'#fff',fontWeight:600,color:'#2B2F36',verticalAlign:'top'}}>
+                                      <span style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>{r.type}<span style={r.tagStyle}>{r.cat}</span></span>
+                                      {r.typeTotal>0&&<div style={{fontSize:'10.5px',color:'#AEB3BA',marginTop:'3px'}}>총 {fmt(r.typeTotal)} t</div>}
+                                    </td>
+                                  )}
+                                  <td style={{padding:'8px 14px',borderBottom:'1px solid #F2F3F5',borderLeft:'1px solid #E8EAED',fontSize:'12px',fontWeight:600,color:'#3B4048',background:ci%2===0?'#fff':'#FAFAFB'}}>
                                     {co.name}
                                   </td>
-                                  {co.tonnageCells.map(c=>(
-                                    <td key={c.j} style={{padding:'5px 6px',borderBottom:ci===r.coRows.length-1?'1px solid #F2F3F5':'1px solid #F8F9FA',borderLeft:'1px solid #F7F8F9',background:'#F9FAFB',textAlign:'center',fontSize:'12px',color:'#6B717A',fontWeight:600,fontVariantNumeric:'tabular-nums'}}>
-                                      {c.tonnage>0?fmt(c.tonnage):<span style={{color:'#D0D3D8'}}>—</span>}
+                                  {co.cells.map(c=>(
+                                    <td key={c.j} style={{padding:'6px',borderBottom:'1px solid #F2F3F5',borderLeft:'1px solid #F7F8F9',background:ci%2===0?'#fff':'#FAFAFB'}}>
+                                      <input type="number" defaultValue={c.ton} key={`cton-${allocMonth}-${r.i}-${c.j}-${co.name}`} data-typename={c.typeName} data-coname={c.coName} data-j={c.j} onChange={setCompanyTonnageCell} onBlur={saveCompanyTonnageOnBlur} className="cell-input" style={{width:'100%',textAlign:'center',fontFamily:'inherit',fontSize:'13px',fontWeight:600,color:'#2B2F36',border:'1px solid #EBEDEF',borderRadius:'7px',padding:'8px 4px',background:'#FBFBFC'}}/>
                                     </td>
                                   ))}
-                                  <td style={{padding:'5px 14px',borderBottom:ci===r.coRows.length-1?'1px solid #F2F3F5':'1px solid #F8F9FA',borderLeft:'1px solid #E8EAED',background:'#F9FAFB',textAlign:'center'}}>
+                                  <td style={{padding:'8px 14px',borderBottom:'1px solid #F2F3F5',borderLeft:'1px solid #E8EAED',textAlign:'center',background:ci%2===0?'#fff':'#FAFAFB'}}>
                                     <span style={co.labelStyle}>{co.label}</span>
                                   </td>
                                 </tr>
@@ -1073,7 +1141,7 @@ function App(){
                       <span style={{fontSize:'11.5px',color:'#9CA1A8',fontWeight:700}}>부서 추가</span>
                       <input value={newDept} onChange={e=>setNewDept(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addDept()} placeholder="부서(팀)명 입력" style={{fontFamily:'inherit',fontSize:'12.5px',border:'1px solid #E2E5E9',borderRadius:'8px',padding:'8px 12px',width:'180px',color:'#3B4048',background:'#fff'}}/>
                       <div onClick={addDept} style={{fontSize:'12.5px',fontWeight:700,color:ACCENT,border:`1px solid ${ACCENT}`,borderRadius:'8px',padding:'8px 15px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}><span style={{fontSize:'15px',lineHeight:1}}>+</span>추가</div>
-                      <span style={{marginLeft:'auto',fontSize:'11.5px',color:'#AEB3BA'}}>% 단위 입력 · 포커스 이동 시 자동 저장</span>
+                      <span style={{marginLeft:'auto',fontSize:'11.5px',color:'#AEB3BA'}}>t 단위 입력 · 포커스 이동 시 자동 저장</span>
                     </div>
                   </div>
                 </>
