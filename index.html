@@ -613,7 +613,7 @@ function App(){
   },[loaded,monthData,activeTypeIdx,types,selCompanies,companies]);
 
   const dashboardData=useMemo(()=>{
-    const sumRange=(a,b)=>{let v=0;for(let i=a;i<=b;i++){const s=sumMi(i);if(s===null)return null;v+=s;}return v;};
+    const sumRange=(a,b)=>{let v=0,has=false;for(let i=a;i<=b;i++){const s=sumMi(i);if(s!==null){v+=s;has=true;}}return has?v:null;};
     let total=0;periodIdx.forEach(mi=>{const s=sumMi(mi);if(s!==null)total+=s;});
     const companyCount=selCompanies.length||companies.length;
     const typeCount=activeTypeIdx.length;
