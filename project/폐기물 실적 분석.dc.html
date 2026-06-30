@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:'Pretendard',system-ui,-apple-system,sans-serif;color:#1B1E24;-webkit-font-smoothing:antialiased;background:#F5F6F8}
+input[type=number]{-moz-appearance:textfield}
+input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input:focus,select:focus{outline:none}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:#D3D7DC;border-radius:7px;border:3px solid #F5F6F8}
+::-webkit-scrollbar-thumb:hover{background:#BEC3C9}
+@keyframes fadeUp{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+<div style="--accent:{{accent}};--card-pad:{{cardPad}};display:flex;height:100vh;width:100%;overflow:hidden;background:#F5F6F8">
+
+  <aside style="width:250px;flex:none;background:#16181D;color:#EDEEF0;display:flex;flex-direction:column;border-right:1px solid #0E0F12">
+    <div style="padding:22px 22px 18px;display:flex;align-items:center;gap:11px">
+      <div style="width:34px;height:34px;border-radius:9px;background:var(--accent,#F37021);display:flex;align-items:center;justify-content:center;flex:none">
+        <div style="width:13px;height:13px;border-radius:3px;background:#fff;transform:rotate(45deg)"></div>
+      </div>
+      <div style="line-height:1.2">
+        <div style="font-size:15px;font-weight:800;letter-spacing:.2px">폐기물 실적 분석</div>
+      </div>
+    </div>
+
+    <div style="padding:6px 13px 4px;font-size:10.5px;font-weight:700;color:#6C7178;letter-spacing:1.2px">메뉴</div>
+    <nav style="display:flex;flex-direction:column;gap:2px;padding:4px 11px;flex:1;overflow:auto">
+      <sc-for list="{{navItems}}" as="it" hint-placeholder-count="8">
+        <div onClick="{{it.onClick}}" style="{{it.style}}">
+          <span style="display:flex;width:20px;height:20px;align-items:center;justify-content:center;flex:none">{{it.icon}}</span>
+          <span style="flex:1">{{it.label}}</span>
+          <sc-if value="{{it.soon}}" hint-placeholder-val="{{false}}"><span style="font-size:9px;font-weight:700;color:#6C7178;border:1px solid #2E323A;border-radius:5px;padding:1px 5px">예정</span></sc-if>
+        </div>
+      </sc-for>
+    </nav>
+
+    <div style="padding:11px;border-top:1px solid #24272E">
+      <div onClick="{{goSystem}}" style="{{systemNavStyle}}">
+        <span style="display:flex;width:20px;height:20px;align-items:center;justify-content:center;flex:none">{{guideIcon}}</span>
+        <span>디자인 가이드</span>
+      </div>
+    </div>
+    <div style="padding:14px 18px;border-top:1px solid #24272E;display:flex;align-items:center;gap:10px">
+      <div style="width:32px;height:32px;border-radius:50%;background:#2C3038;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#C7CCD3">담</div>
+      <div style="line-height:1.25">
+        <div style="font-size:12.5px;font-weight:600">환경안전팀 · 담당자</div>
+        <div style="font-size:10.5px;color:#7C828A">2024–2026 누적 실적</div>
+      </div>
+    </div>
+  </aside>
+
+  <main style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+    <header style="flex:none;height:66px;background:#fff;border-bottom:1px solid #E8EAED;display:flex;align-items:center;justify-content:space-between;padding:0 30px">
+      <div style="line-height:1.2">
+        <div style="font-size:18px;font-weight:800;letter-spacing:-.2px">{{title}}</div>
+        <div style="font-size:12px;color:#888E96;margin-top:2px;font-weight:500">{{sub}}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="display:flex;align-items:center;gap:7px;background:#F3F4F6;border:1px solid #E8EAED;border-radius:999px;padding:7px 13px;font-size:12.5px;color:#5B616A;font-weight:600">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--accent,#F37021)"></span>{{periodLabel}}
+        </div>
+        <div style="display:flex;align-items:center;gap:7px;background:var(--accent,#F37021);color:#fff;border-radius:999px;padding:8px 16px;font-size:12.5px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(243,112,33,.28)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          내보내기
+        </div>
+      </div>
+    </header>
+
+    <div style="flex:1;overflow:auto;padding:26px 30px 40px">
+
+      <!-- ============ DASHBOARD ============ -->
+      <sc-if value="{{isDashboard}}" hint-placeholder-val="{{false}}">
+      <div style="max-width:1240px;margin:0 auto">
+
+        <!-- filter bar -->
+        <div style="background:#fff;border:1px solid #E8EAED;border-radius:14px;padding:15px 18px;box-shadow:0 1px 2px rgba(16,18,23,.04);display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:relative;z-index:30">
+          <div style="font-size:12px;font-weight:700;color:#6B717A;display:flex;align-items:center;gap:7px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>조회 조건
+          </div>
+          <span style="font-size:11.5px;color:#9CA1A8;font-weight:700">조회 기간</span>
+          <select value="{{fromYm}}" onChange="{{setFrom}}" style="font-family:inherit;font-size:12.5px;font-weight:700;color:#2B2F36;border:1px solid #E2E5E9;border-radius:9px;padding:8px 11px;background:#fff;cursor:pointer">
+            <sc-for list="{{monthOptions}}" as="m" hint-placeholder-count="6"><option value="{{m.ym}}">{{m.label}}</option></sc-for>
+          </select>
+          <span style="color:#B6BBC2;font-weight:700">~</span>
+          <select value="{{toYm}}" onChange="{{setTo}}" style="font-family:inherit;font-size:12.5px;font-weight:700;color:#2B2F36;border:1px solid #E2E5E9;border-radius:9px;padding:8px 11px;background:#fff;cursor:pointer">
+            <sc-for list="{{monthOptions}}" as="m" hint-placeholder-count="6"><option value="{{m.ym}}">{{m.label}}</option></sc-for>
+          </select>
+
+          <div style="width:1px;height:24px;background:#E8EAED"></div>
+
+          <!-- dept filter -->
+          <div style="position:relative">
+            <div onClick="{{toggleDept}}" style="{{deptBtnStyle}}">
+              <span style="color:#9CA1A8;font-weight:500">발생부서</span><span>{{deptSelLabel}}</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+            <sc-if value="{{openDept}}" hint-placeholder-val="{{false}}">
+              <div style="position:absolute;top:42px;left:0;width:200px;background:#fff;border:1px solid #E2E5E9;border-radius:11px;box-shadow:0 12px 32px rgba(16,18,23,.14);padding:7px;z-index:50">
+                <sc-for list="{{deptOptions}}" as="o" hint-placeholder-count="6">
+                  <div onClick="{{o.onClick}}" style="display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;cursor:pointer;font-size:13px" style-hover="background:#F5F6F8">
+                    <sc-if value="{{o.checked}}" hint-placeholder-val="{{false}}"><span style="width:17px;height:17px;border-radius:5px;background:var(--accent,#F37021);display:flex;align-items:center;justify-content:center;flex:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span></sc-if>
+                    <sc-if value="{{o.unchecked}}" hint-placeholder-val="{{true}}"><span style="width:17px;height:17px;border-radius:5px;border:1.5px solid #D3D7DC;flex:none"></span></sc-if>
+                    <span style="flex:1">{{o.label}}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+
+          <!-- type filter -->
+          <div style="position:relative">
+            <div onClick="{{toggleType}}" style="{{typeBtnStyle}}">
+              <span style="color:#9CA1A8;font-weight:500">종류</span><span>{{typeSelLabel}}</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+            <sc-if value="{{openType}}" hint-placeholder-val="{{false}}">
+              <div style="position:absolute;top:42px;left:0;width:230px;background:#fff;border:1px solid #E2E5E9;border-radius:11px;box-shadow:0 12px 32px rgba(16,18,23,.14);padding:7px;z-index:50;max-height:300px;overflow:auto">
+                <sc-for list="{{typeOptions}}" as="o" hint-placeholder-count="6">
+                  <div onClick="{{o.onClick}}" style="display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;cursor:pointer;font-size:13px" style-hover="background:#F5F6F8">
+                    <sc-if value="{{o.checked}}" hint-placeholder-val="{{false}}"><span style="width:17px;height:17px;border-radius:5px;background:var(--accent,#F37021);display:flex;align-items:center;justify-content:center;flex:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span></sc-if>
+                    <sc-if value="{{o.unchecked}}" hint-placeholder-val="{{true}}"><span style="width:17px;height:17px;border-radius:5px;border:1.5px solid #D3D7DC;flex:none"></span></sc-if>
+                    <span style="flex:1">{{o.label}}</span>
+                    <span style="{{o.tagStyle}}">{{o.cat}}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+
+          <!-- company filter -->
+          <div style="position:relative">
+            <div onClick="{{toggleCompany}}" style="{{companyBtnStyle}}">
+              <span style="color:#9CA1A8;font-weight:500">처리업체</span><span>{{companySelLabel}}</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+            <sc-if value="{{openCompany}}" hint-placeholder-val="{{false}}">
+              <div style="position:absolute;top:42px;left:0;width:220px;background:#fff;border:1px solid #E2E5E9;border-radius:11px;box-shadow:0 12px 32px rgba(16,18,23,.14);padding:7px;z-index:50">
+                <sc-for list="{{companyOptions}}" as="o" hint-placeholder-count="6">
+                  <div onClick="{{o.onClick}}" style="display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;cursor:pointer;font-size:13px" style-hover="background:#F5F6F8">
+                    <sc-if value="{{o.checked}}" hint-placeholder-val="{{false}}"><span style="width:17px;height:17px;border-radius:5px;background:var(--accent,#F37021);display:flex;align-items:center;justify-content:center;flex:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span></sc-if>
+                    <sc-if value="{{o.unchecked}}" hint-placeholder-val="{{true}}"><span style="width:17px;height:17px;border-radius:5px;border:1.5px solid #D3D7DC;flex:none"></span></sc-if>
+                    <span style="flex:1">{{o.label}}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+
+          <div onClick="{{clearAll}}" style="margin-left:auto;font-size:12px;color:#9CA1A8;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px" style-hover="color:#5B616A">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8"></path><path d="M3 3v5h5"></path></svg>초기화
+          </div>
+        </div>
+
+        <!-- KPI row -->
+        <div style="display:flex;gap:16px;margin-top:16px">
+          <div style="flex:1.7;background:#16181D;color:#fff;border-radius:16px;padding:24px 26px;position:relative;overflow:hidden">
+            <div style="position:absolute;right:-30px;top:-30px;width:160px;height:160px;border-radius:50%;background:var(--accent,#F37021);opacity:.16;filter:blur(8px)"></div>
+            <div style="font-size:12.5px;color:#9DA2AA;font-weight:600;position:relative">선택 조건 총 위탁량</div>
+            <div style="display:flex;align-items:flex-end;gap:8px;margin-top:10px;position:relative">
+              <div style="font-size:46px;font-weight:800;letter-spacing:-1.5px;line-height:1">{{totalLabel}}</div>
+              <div style="font-size:18px;font-weight:600;color:#B6BBC2;margin-bottom:5px">t</div>
+            </div>
+            <div style="display:flex;gap:18px;margin-top:18px;position:relative">
+              <div><div style="font-size:11px;color:#8A8F97">처리업체</div><div style="font-size:18px;font-weight:700;margin-top:2px">{{companyCount}}<span style="font-size:12px;color:#9DA2AA;font-weight:500"> 곳</span></div></div>
+              <div style="width:1px;background:#2C3038"></div>
+              <div><div style="font-size:11px;color:#8A8F97">폐기물 종류</div><div style="font-size:18px;font-weight:700;margin-top:2px">{{typeCount}}<span style="font-size:12px;color:#9DA2AA;font-weight:500"> 종</span></div></div>
+              <div style="width:1px;background:#2C3038"></div>
+              <div><div style="font-size:11px;color:#8A8F97">월평균</div><div style="font-size:18px;font-weight:700;margin-top:2px">{{avgLabel}}<span style="font-size:12px;color:#9DA2AA;font-weight:500"> t</span></div></div>
+            </div>
+          </div>
+          <sc-for list="{{compareCards}}" as="c" hint-placeholder-count="3">
+            <div style="flex:1;background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:20px;box-shadow:0 1px 2px rgba(16,18,23,.04);display:flex;flex-direction:column;justify-content:space-between">
+              <div style="font-size:12px;color:#888E96;font-weight:600">{{c.label}}</div>
+              <div>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:14px">
+                  <span style="{{c.arrowStyle}}">{{c.arrow}}</span>
+                  <span style="font-size:24px;font-weight:800;letter-spacing:-.5px;color:{{c.color}}">{{c.pctLabel}}</span>
+                </div>
+                <div style="font-size:12.5px;color:#7C828A;margin-top:5px;font-weight:600">{{c.deltaLabel}} <span style="color:#AEB3BA;font-weight:500">({{c.cmp}})</span></div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <!-- trend -->
+        <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:var(--card-pad,22px);box-shadow:0 1px 2px rgba(16,18,23,.04);margin-top:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div>
+              <div style="font-size:15px;font-weight:700">월별 발생(위탁)량 추이</div>
+              <div style="font-size:11.5px;color:#9CA1A8;margin-top:2px">{{trendRange}}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#7C828A;font-weight:600"><span style="width:18px;height:3px;border-radius:2px;background:var(--accent,#F37021)"></span>위탁량</div>
+          </div>
+          {{trendChart}}
+        </div>
+
+        <!-- secondary -->
+        <sc-if value="{{showSecondary}}" hint-placeholder-val="{{true}}">
+        <div style="display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:16px;margin-top:16px">
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:var(--card-pad,22px);box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <div style="font-size:14.5px;font-weight:700;margin-bottom:16px">폐기물 종류별 위탁량</div>
+            <div style="display:flex;flex-direction:column;gap:13px">
+              <sc-for list="{{typeBars}}" as="b" hint-placeholder-count="6">
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:5px">
+                    <span style="display:flex;align-items:center;gap:6px;font-weight:600;color:#3B4048"><span style="{{b.dot}}"></span>{{b.label}}<span style="{{b.tagStyle}}">{{b.cat}}</span></span>
+                    <span style="color:#6B717A;font-weight:600">{{b.valueLabel}} t · {{b.pctLabel}}</span>
+                  </div>
+                  <div style="height:8px;background:#F0F1F3;border-radius:5px;overflow:hidden"><div style="height:100%;border-radius:5px;width:{{b.w}};background:{{b.fill}}"></div></div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:var(--card-pad,22px);box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <div style="font-size:14.5px;font-weight:700;margin-bottom:6px">처리업체별 비중</div>
+            <div style="display:flex;justify-content:center;margin:6px 0 12px">{{companyDonut}}</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{companyLegend}}" as="l" hint-placeholder-count="6">
+                <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+                  <span style="width:9px;height:9px;border-radius:3px;background:{{l.color}};flex:none"></span>
+                  <span style="flex:1;color:#3B4048;font-weight:600">{{l.label}}</span>
+                  <span style="color:#6B717A;font-weight:600">{{l.pctLabel}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:var(--card-pad,22px);box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <div style="font-size:14.5px;font-weight:700;margin-bottom:16px">발생 부서별 위탁량</div>
+            <div style="display:flex;flex-direction:column;gap:13px">
+              <sc-for list="{{deptBars}}" as="b" hint-placeholder-count="6">
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:5px">
+                    <span style="font-weight:600;color:#3B4048">{{b.label}}</span>
+                    <span style="color:#6B717A;font-weight:600">{{b.valueLabel}} t · {{b.pctLabel}}</span>
+                  </div>
+                  <div style="height:8px;background:#F0F1F3;border-radius:5px;overflow:hidden"><div style="height:100%;border-radius:5px;width:{{b.w}};background:var(--accent,#F37021)"></div></div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="margin-top:14px;font-size:11px;color:#AEB3BA;border-top:1px solid #F0F1F3;padding-top:11px">월별 배분 비율 기준 산출 · 선택 기간</div>
+          </div>
+        </div>
+        </sc-if>
+      </div>
+      </sc-if>
+
+      <!-- ============ ALLOCATION ============ -->
+      <sc-if value="{{isAlloc}}" hint-placeholder-val="{{false}}">
+      <div style="max-width:1240px;margin:0 auto">
+
+        <div style="display:flex;gap:16px;align-items:stretch;margin-bottom:16px;flex-wrap:wrap">
+          <div style="flex:none;background:#fff;border:1px solid #E8EAED;border-radius:14px;padding:13px 16px;box-shadow:0 1px 2px rgba(16,18,23,.04);display:flex;align-items:center;gap:10px">
+            <span style="font-size:11.5px;color:#9CA1A8;font-weight:700">대상 월</span>
+            <div onClick="{{prevMonth}}" style="width:30px;height:32px;display:flex;align-items:center;justify-content:center;border:1px solid #E2E5E9;border-radius:8px;cursor:pointer;color:#6B717A;font-size:16px" style-hover="background:#F5F6F8">‹</div>
+            <select value="{{allocMonth}}" onChange="{{setAllocMonth}}" style="font-family:inherit;font-size:13px;font-weight:700;color:#2B2F36;border:1px solid #E2E5E9;border-radius:8px;padding:8px 11px;background:#fff;cursor:pointer;min-width:110px">
+              <sc-for list="{{monthOptions}}" as="m" hint-placeholder-count="6"><option value="{{m.ym}}">{{m.label}}</option></sc-for>
+            </select>
+            <div onClick="{{nextMonth}}" style="width:30px;height:32px;display:flex;align-items:center;justify-content:center;border:1px solid #E2E5E9;border-radius:8px;cursor:pointer;color:#6B717A;font-size:16px" style-hover="background:#F5F6F8">›</div>
+          </div>
+          <div style="flex:1;min-width:300px;background:#fff;border:1px solid #E8EAED;border-radius:14px;padding:13px 18px;box-shadow:0 1px 2px rgba(16,18,23,.04);display:flex;align-items:center;gap:14px">
+            <div style="{{validBadgeStyle}}">{{validBadgeText}}</div>
+            <div style="font-size:12px;color:#6B717A;line-height:1.5">선택한 월의 <b style="color:#3B4048">종류(행)별 합계가 100%</b>여야 합니다 · <b style="color:#3B4048">{{monthOkSummary}}</b></div>
+            <div onClick="{{applyAll}}" style="margin-left:auto;font-size:12px;font-weight:700;color:var(--accent,#F37021);border:1px solid var(--accent,#F37021);border-radius:8px;padding:8px 13px;cursor:pointer;white-space:nowrap" style-hover="background:#FDEEE6">현재 비율 전체 월 적용</div>
+          </div>
+          <div style="display:flex;gap:9px;align-items:center;background:#fff;border:1px solid #E8EAED;border-radius:14px;padding:12px 16px;box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <span style="font-size:11.5px;color:#9CA1A8;font-weight:700">프리셋</span>
+            <select value="{{selectedPreset}}" onChange="{{loadPreset}}" style="font-family:inherit;font-size:12.5px;font-weight:600;color:#3B4048;border:1px solid #E2E5E9;border-radius:8px;padding:8px 11px;background:#fff;cursor:pointer;min-width:170px">
+              <sc-for list="{{presetOptions}}" as="p" hint-placeholder-count="2"><option value="{{p.name}}">{{p.name}}</option></sc-for>
+            </select>
+            <input value="{{presetName}}" onChange="{{setPresetName}}" placeholder="새 프리셋 이름" style="font-family:inherit;font-size:12.5px;border:1px solid #E2E5E9;border-radius:8px;padding:8px 11px;width:130px;color:#3B4048">
+            <div onClick="{{savePreset}}" style="font-size:12.5px;font-weight:700;color:#fff;background:var(--accent,#F37021);border-radius:8px;padding:9px 15px;cursor:pointer">저장</div>
+            <div onClick="{{resetMatrix}}" style="font-size:12.5px;font-weight:600;color:#6B717A;border:1px solid #E2E5E9;border-radius:8px;padding:8px 14px;cursor:pointer" style-hover="background:#F5F6F8">기본값</div>
+          </div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;box-shadow:0 1px 2px rgba(16,18,23,.04);overflow:hidden">
+          <div style="overflow-x:auto">
+            <table style="border-collapse:collapse;width:100%;min-width:760px;font-size:13px">
+              <thead>
+                <tr style="background:#FAFAFB">
+                  <th style="text-align:left;padding:14px 18px;font-size:11.5px;font-weight:700;color:#888E96;letter-spacing:.3px;position:sticky;left:0;background:#FAFAFB;border-bottom:1px solid #E8EAED;min-width:170px">폐기물 종류 \ 부서</th>
+                  <sc-for list="{{allocDepts}}" as="d" hint-placeholder-count="6">
+                    <th style="padding:12px 10px;font-size:12px;font-weight:700;color:#3B4048;border-bottom:1px solid #E8EAED;border-left:1px solid #F0F1F3;min-width:96px">
+                      <div style="display:flex;align-items:center;justify-content:center;gap:5px">{{d.name}}<span onClick="{{d.onRemove}}" style="color:#C7CCD3;cursor:pointer;font-size:14px;line-height:1" style-hover="color:#E5484D">×</span></div>
+                    </th>
+                  </sc-for>
+                  <th style="padding:12px 14px;font-size:11.5px;font-weight:700;color:#888E96;border-bottom:1px solid #E8EAED;border-left:1px solid #E8EAED;background:#FAFAFB;min-width:78px">행 합계</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{allocRows}}" as="r" hint-placeholder-count="10">
+                  <tr style-hover="background:#FCFCFD">
+                    <td style="padding:10px 18px;border-bottom:1px solid #F2F3F5;position:sticky;left:0;background:#fff;font-weight:600;color:#2B2F36">
+                      <span style="display:flex;align-items:center;gap:8px">{{r.type}}<span style="{{r.tagStyle}}">{{r.cat}}</span></span>
+                    </td>
+                    <sc-for list="{{r.cells}}" as="c" hint-placeholder-count="6">
+                      <td style="padding:6px;border-bottom:1px solid #F2F3F5;border-left:1px solid #F7F8F9">
+                        <input type="number" value="{{c.v}}" data-i="{{c.i}}" data-j="{{c.j}}" onChange="{{setCell}}" style="width:100%;text-align:center;font-family:inherit;font-size:13px;font-weight:600;color:#2B2F36;border:1px solid #EBEDEF;border-radius:7px;padding:8px 4px;background:#FBFBFC" style-focus="border-color:var(--accent,#F37021);background:#fff">
+                      </td>
+                    </sc-for>
+                    <td style="padding:8px 14px;border-bottom:1px solid #F2F3F5;border-left:1px solid #E8EAED;text-align:center"><span style="{{r.totalStyle}}">{{r.totalLabel}}</span></td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-top:1px solid #E8EAED;background:#FAFAFB">
+            <span style="font-size:11.5px;color:#9CA1A8;font-weight:700">부서 추가</span>
+            <input value="{{newDept}}" onChange="{{setNewDept}}" placeholder="부서(팀)명 입력" style="font-family:inherit;font-size:12.5px;border:1px solid #E2E5E9;border-radius:8px;padding:8px 12px;width:180px;color:#3B4048;background:#fff">
+            <div onClick="{{addDept}}" style="font-size:12.5px;font-weight:700;color:var(--accent,#F37021);border:1px solid var(--accent,#F37021);border-radius:8px;padding:8px 15px;cursor:pointer;display:flex;align-items:center;gap:5px"><span style="font-size:15px;line-height:1">+</span>추가</div>
+            <span style="margin-left:auto;font-size:11.5px;color:#AEB3BA">% 단위 입력 · 행 합계가 100%면 녹색으로 표시됩니다</span>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ============ DATA UPLOAD ============ -->
+      <sc-if value="{{isUpload}}" hint-placeholder-val="{{false}}">
+      <div style="max-width:900px;margin:0 auto">
+        <div style="border:2px dashed #D5D9DE;border-radius:16px;background:#fff;padding:38px 32px;text-align:center;box-shadow:0 1px 2px rgba(16,18,23,.04)">
+          <div style="width:60px;height:60px;border-radius:16px;background:#FDEEE6;color:var(--accent,#F37021);display:flex;align-items:center;justify-content:center;margin:0 auto 16px">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"></path><polyline points="7 9 12 4 17 9"></polyline><path d="M4 20h16"></path></svg>
+          </div>
+          <div style="font-size:16px;font-weight:800">엑셀 파일을 끌어다 놓거나 선택하세요</div>
+          <div style="font-size:12.5px;color:#9CA1A8;margin-top:6px">정부 폐기물 적법처리시스템에서 내려받은 월별 실적(.xlsx) · 대상 월 자동 인식</div>
+          <div style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;background:var(--accent,#F37021);color:#fff;border-radius:999px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(243,112,33,.25)">파일 선택</div>
+          <div style="font-size:11px;color:#C2C7CE;margin-top:14px">데모 환경 — 아래에서 대상 월을 선택해 ‘누적 반영’을 시뮬레이션합니다</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:var(--card-pad,22px);box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <div style="font-size:14px;font-weight:700;margin-bottom:14px">대상 월 선택</div>
+            <select value="{{uploadYm}}" onChange="{{setUploadYm}}" style="width:100%;font-family:inherit;font-size:13.5px;font-weight:700;color:#2B2F36;border:1px solid #E2E5E9;border-radius:9px;padding:11px 13px;background:#fff;cursor:pointer">
+              <sc-for list="{{uploadOptions}}" as="o" hint-placeholder-count="6"><option value="{{o.ym}}">{{o.label}}</option></sc-for>
+            </select>
+            <div onClick="{{confirmUpload}}" style="margin-top:14px;text-align:center;background:#16181D;color:#fff;border-radius:10px;padding:12px;font-size:13.5px;font-weight:700;cursor:pointer">누적 반영</div>
+            <div style="margin-top:13px;font-size:11.5px;color:#9CA1A8;line-height:1.6">현재 누적 <b style="color:#3B4048">{{histCount}}개월</b> · {{coverageLabel}}</div>
+          </div>
+
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:var(--card-pad,22px);box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <div style="font-size:14px;font-weight:700;margin-bottom:14px">유효성 검사 · 누적 미리보기</div>
+            <div style="display:flex;flex-direction:column;gap:11px">
+              <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:#6B717A">대상 월</span><span style="font-weight:700">{{uploadInfo.ym}}</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:#6B717A">인식 행 수</span><span style="font-weight:700">{{uploadInfo.rowsLabel}} 건</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:#6B717A">매핑 상태</span><span style="font-weight:700;color:#1F8A5B">정상 · 경고 0</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:#6B717A">신규 추가</span><span style="font-weight:700">+{{uploadInfo.newRowsLabel}} 건</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;border-top:1px solid #F0F1F3;padding-top:11px"><span style="color:#6B717A">누적 반영 후 총 건수</span><span style="font-weight:800;color:var(--accent,#F37021)">{{uploadInfo.cumTotalLabel}} 건</span></div>
+            </div>
+            <div style="margin-top:14px;font-size:11.5px;color:#7C828A;background:#F5F6F8;border-radius:9px;padding:10px 12px;line-height:1.5">{{uploadInfo.statusText}}</div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ============ DATA HISTORY ============ -->
+      <sc-if value="{{isHistory}}" hint-placeholder-val="{{false}}">
+      <div style="max-width:1100px;margin:0 auto">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
+          <div style="background:#16181D;color:#fff;border-radius:16px;padding:20px 22px">
+            <div style="font-size:12px;color:#9DA2AA;font-weight:600">전체 누적 건수</div>
+            <div style="font-size:30px;font-weight:800;letter-spacing:-1px;margin-top:8px">{{histTotalRows}}<span style="font-size:14px;color:#B6BBC2;font-weight:600"> 건</span></div>
+          </div>
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <div style="font-size:12px;color:#888E96;font-weight:600">데이터 기간 범위</div>
+            <div style="font-size:22px;font-weight:800;margin-top:10px;color:#1B1E24">{{histRange}}</div>
+          </div>
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <div style="font-size:12px;color:#888E96;font-weight:600">업로드 월 수</div>
+            <div style="font-size:22px;font-weight:800;margin-top:10px;color:#1B1E24">{{histCount}}<span style="font-size:13px;color:#9CA1A8;font-weight:600"> 개월</span></div>
+          </div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;box-shadow:0 1px 2px rgba(16,18,23,.04);overflow:hidden">
+          <table style="border-collapse:collapse;width:100%;font-size:13px">
+            <thead>
+              <tr style="background:#FAFAFB">
+                <th style="text-align:left;padding:13px 20px;font-size:11.5px;font-weight:700;color:#888E96;border-bottom:1px solid #E8EAED">대상 월</th>
+                <th style="text-align:left;padding:13px 16px;font-size:11.5px;font-weight:700;color:#888E96;border-bottom:1px solid #E8EAED">업로드 일시</th>
+                <th style="text-align:right;padding:13px 16px;font-size:11.5px;font-weight:700;color:#888E96;border-bottom:1px solid #E8EAED">인식 행 수</th>
+                <th style="text-align:center;padding:13px 16px;font-size:11.5px;font-weight:700;color:#888E96;border-bottom:1px solid #E8EAED">상태</th>
+                <th style="text-align:right;padding:13px 20px;font-size:11.5px;font-weight:700;color:#888E96;border-bottom:1px solid #E8EAED">관리</th>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{uploadsList}}" as="u" hint-placeholder-count="8">
+                <tr style-hover="background:#FCFCFD">
+                  <td style="padding:12px 20px;border-bottom:1px solid #F2F3F5;font-weight:700;color:#2B2F36">{{u.ym}}</td>
+                  <td style="padding:12px 16px;border-bottom:1px solid #F2F3F5;color:#6B717A">{{u.at}}</td>
+                  <td style="padding:12px 16px;border-bottom:1px solid #F2F3F5;text-align:right;font-weight:600;color:#3B4048">{{u.rows}} 건</td>
+                  <td style="padding:12px 16px;border-bottom:1px solid #F2F3F5;text-align:center"><span style="font-size:11px;font-weight:700;color:#1F8A5B;background:#E7F5EE;border-radius:999px;padding:4px 11px">정상</span></td>
+                  <td style="padding:12px 20px;border-bottom:1px solid #F2F3F5;text-align:right">
+                    <span style="display:inline-flex;gap:8px;justify-content:flex-end">
+                      <span onClick="{{u.onReupload}}" style="font-size:12px;font-weight:600;color:#6B717A;border:1px solid #E2E5E9;border-radius:7px;padding:6px 11px;cursor:pointer" style-hover="background:#F5F6F8">재업로드</span>
+                      <span onClick="{{u.onDelete}}" style="font-size:12px;font-weight:600;color:#E5484D;border:1px solid #F3C6C7;border-radius:7px;padding:6px 11px;cursor:pointer" style-hover="background:#FCEAEA">삭제</span>
+                    </span>
+                  </td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+          <div style="padding:13px 20px;border-top:1px solid #E8EAED;background:#FAFAFB;font-size:11.5px;color:#AEB3BA">월을 삭제하거나 추가하면 요약 대시보드의 조회 가능 기간도 자동으로 갱신됩니다.</div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ============ DESIGN SYSTEM ============ -->
+      <sc-if value="{{isSystem}}" hint-placeholder-val="{{true}}">
+      <div style="max-width:1100px;margin:0 auto">
+        <div style="background:#16181D;border-radius:18px;padding:30px 32px;color:#fff;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;color:var(--accent,#F37021)">VISUAL GUIDE</div>
+            <div style="font-size:26px;font-weight:800;margin-top:8px;letter-spacing:-.5px">폐기물 실적 분석 도구 · 디자인 시스템</div>
+            <div style="font-size:13px;color:#9DA2AA;margin-top:8px;line-height:1.6;max-width:560px">데스크톱(1440px+) 업무 도구를 위한 절제된 기업용 톤. 오렌지 액센트 + 차콜 내비 + 화이트 카드 시스템으로 정보 밀도 높은 대시보드를 일관되게 구성합니다.</div>
+          </div>
+          <div onClick="{{goDashboard}}" style="background:var(--accent,#F37021);color:#fff;border-radius:11px;padding:13px 20px;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap;box-shadow:0 4px 14px rgba(243,112,33,.3)">요약 대시보드 보기 →</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:24px;box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <div style="font-size:15px;font-weight:700;margin-bottom:16px">컬러 팔레트</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <sc-for list="{{palette}}" as="c" hint-placeholder-count="6">
+                <div style="display:flex;align-items:center;gap:11px">
+                  <div style="width:42px;height:42px;border-radius:10px;flex:none;background:{{c.hex}};border:1px solid rgba(0,0,0,.06)"></div>
+                  <div style="line-height:1.3"><div style="font-size:12.5px;font-weight:700;color:#2B2F36">{{c.name}}</div><div style="font-size:11px;color:#9CA1A8;font-family:ui-monospace,Menlo,monospace">{{c.hex}}</div></div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="margin-top:18px;padding-top:16px;border-top:1px solid #F0F1F3;font-size:12px;color:#6B717A;line-height:1.6">증감 표기 — <b style="color:#E5484D">상승 ▲ 레드</b> / <b style="color:#2F6FEB">하락 ▼ 블루</b>. 액센트(오렌지)는 핵심 수치·활성 상태·차트 포인트에만 사용합니다.</div>
+          </div>
+
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:24px;box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <div style="font-size:15px;font-weight:700;margin-bottom:16px">타이포그래피 · Pretendard</div>
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #F2F3F5;padding-bottom:12px"><span style="font-size:11px;color:#9CA1A8;width:96px;flex:none">Display / 46·800</span><span style="font-size:32px;font-weight:800;letter-spacing:-1px">807.3 t</span></div>
+              <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #F2F3F5;padding-bottom:12px"><span style="font-size:11px;color:#9CA1A8;width:96px;flex:none">Title / 18·800</span><span style="font-size:18px;font-weight:800">요약 대시보드</span></div>
+              <div style="display:flex;align-items:baseline;gap:14px;border-bottom:1px solid #F2F3F5;padding-bottom:12px"><span style="font-size:11px;color:#9CA1A8;width:96px;flex:none">Body / 13·500</span><span style="font-size:13px;font-weight:500;color:#3B4048">처리업체별 위탁량 비중과 추이를 분석합니다.</span></div>
+              <div style="display:flex;align-items:baseline;gap:14px"><span style="font-size:11px;color:#9CA1A8;width:96px;flex:none">Label / 11·600</span><span style="font-size:11px;font-weight:600;color:#888E96;letter-spacing:.3px">선택 조건 총 위탁량</span></div>
+            </div>
+          </div>
+
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:24px;box-shadow:0 1px 2px rgba(16,18,23,.04)">
+            <div style="font-size:15px;font-weight:700;margin-bottom:16px">컴포넌트</div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px">
+              <div style="background:var(--accent,#F37021);color:#fff;border-radius:999px;padding:9px 18px;font-size:13px;font-weight:700;box-shadow:0 2px 8px rgba(243,112,33,.25)">Primary</div>
+              <div style="background:#fff;color:#3B4048;border:1px solid #E2E5E9;border-radius:999px;padding:9px 18px;font-size:13px;font-weight:600">Secondary</div>
+              <div style="background:#FDEEE6;color:var(--accent,#F37021);border-radius:999px;padding:6px 13px;font-size:11.5px;font-weight:700">지정</div>
+              <div style="background:#EEF1F4;color:#6B717A;border-radius:999px;padding:6px 13px;font-size:11.5px;font-weight:700">일반</div>
+              <div style="background:#FCEAEA;color:#E5484D;border-radius:999px;padding:6px 11px;font-size:11px;font-weight:700">알림 3</div>
+            </div>
+            <div style="display:flex;gap:10px;margin-bottom:14px">
+              <input placeholder="라운드 입력 필드" style="flex:1;font-family:inherit;font-size:13px;border:1px solid #E2E5E9;border-radius:9px;padding:10px 13px;color:#3B4048">
+              <div style="display:flex;background:#F3F4F6;border-radius:9px;padding:3px">
+                <div style="background:#fff;color:#2B2F36;border-radius:7px;padding:7px 13px;font-size:12.5px;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.06)">WORK</div>
+                <div style="color:#9CA1A8;padding:7px 13px;font-size:12.5px;font-weight:600">INFO</div>
+              </div>
+            </div>
+            <div style="font-size:11px;color:#9CA1A8">알약 버튼·뱃지 · 라운드 입력 · 세그먼트 탭 · 카드 라운드 14~16px</div>
+          </div>
+
+          <div style="background:#fff;border:1px solid #E8EAED;border-radius:16px;padding:24px;box-shadow:0 1px 2px rgba(16,18,23,.04);display:flex;align-items:center;gap:24px">
+            <div style="flex:none">{{gaugeChart}}</div>
+            <div>
+              <div style="font-size:15px;font-weight:700;margin-bottom:8px">데이터 시각화</div>
+              <div style="font-size:12.5px;color:#6B717A;line-height:1.7">원형 게이지·도넛, 라인·막대 차트로 위탁량을 표현합니다. 라인 차트(선택 톤)를 추이의 기본으로, 도넛/막대는 구성비에 사용합니다.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ============ PLACEHOLDER ============ -->
+      <sc-if value="{{isPlaceholder}}" hint-placeholder-val="{{false}}">
+      <div style="max-width:760px;margin:48px auto 0">
+        <div style="background:#fff;border:1px solid #E8EAED;border-radius:18px;padding:48px 44px;box-shadow:0 1px 2px rgba(16,18,23,.04);text-align:center">
+          <div style="width:64px;height:64px;border-radius:16px;background:#FDEEE6;color:var(--accent,#F37021);display:flex;align-items:center;justify-content:center;margin:0 auto 20px">{{placeholderIcon}}</div>
+          <div style="font-size:20px;font-weight:800;letter-spacing:-.3px">{{placeholderTitle}}</div>
+          <div style="font-size:13.5px;color:#6B717A;line-height:1.7;margin-top:12px;max-width:480px;margin-left:auto;margin-right:auto">{{placeholderDesc}}</div>
+          <div style="display:inline-flex;align-items:center;gap:8px;margin-top:24px;background:#F3F4F6;border-radius:999px;padding:9px 16px;font-size:12px;color:#7C828A;font-weight:600">
+            <span style="width:7px;height:7px;border-radius:50%;background:#C7CCD3"></span>이번 디자인 범위: 디자인 시스템 · 요약 대시보드 · 발생 부서 배분 입력
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+    </div>
+  </main>
+
+  <sc-if value="{{anyFilterOpen}}" hint-placeholder-val="{{false}}">
+    <div onClick="{{closeFilter}}" style="position:fixed;inset:0;z-index:20"></div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;},&quot;accentColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#F37021&quot;,&quot;options&quot;:[&quot;#F37021&quot;,&quot;#2A6FDB&quot;,&quot;#1F8A5B&quot;,&quot;#0E7C86&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;테마&quot;},&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;컴팩트&quot;,&quot;options&quot;:[&quot;보통&quot;,&quot;컴팩트&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;테마&quot;},&quot;showSecondary&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;대시보드&quot;}}">
+class Component extends DCLogic {
+  MONTHS = this.buildMonths();
+  TYPES = [
+    {name:'폐유',cat:'지정'},{name:'폐산',cat:'지정'},{name:'폐알칼리',cat:'지정'},
+    {name:'폐유기용제',cat:'지정'},{name:'폐석면',cat:'지정'},
+    {name:'폐합성수지',cat:'일반'},{name:'폐목재',cat:'일반'},{name:'폐섬유',cat:'일반'},
+    {name:'무기성오니',cat:'일반'},{name:'사업장생활폐기물',cat:'일반'}
+  ];
+  DATA = this.buildData();
+  COMPANIES = [
+    {name:'그린에코환경',total:198.4},{name:'한솔자원순환',total:162.7},
+    {name:'동부클린텍',total:141.3},{name:'대한환경산업',total:118.9},
+    {name:'우리리사이클',total:105.6},{name:'세영이엔지',total:80.4}
+  ];
+  DEPTS = ['PE생산팀','VCM생산팀','품질보증팀','정비팀','물류팀','총무팀'];
+  ALLOC = [
+    [35,30,5,20,5,5],[20,40,10,15,10,5],[15,35,15,20,10,5],[25,20,10,15,25,5],
+    [0,0,0,70,0,30],[30,30,5,5,5,25],[20,20,5,15,5,35],[25,25,10,5,5,30],
+    [30,35,10,15,5,5],[15,15,15,10,10,35]
+  ];
+  PLACEHOLDER = {
+    company:{title:'업체별 분석',desc:'처리업체별 위탁량·비중을 표와 차트로 분석하고, 폐기물 종류 2차 필터와 전월/전년 동월 비교를 제공합니다.'},
+    type:{title:'폐기물 종류별 분석',desc:'종류별 위탁량·비중, 처리업체 분포, 기간 추이를 보여주고 지정/일반 등 분류로 그룹핑합니다.'},
+    dept:{title:'부서별 발생 분석',desc:'입력한 배분 비율을 적용해 산출된 부서별 위탁량/비율을 종류별·합계로 표시하고 부서 간 비교 차트를 제공합니다.'},
+    report:{title:'리포트 / 내보내기',desc:'현재 필터 결과를 엑셀/PDF로 내보내고, 월간 보고용 표준 템플릿(요약+업체별+종류별+부서별)을 일괄 출력합니다.'}
+  };
+
+  state = {
+    screen:'system', fromYm:'2024-01', toYm:'2026-06',
+    selTypes:[], selCompanies:[], selDepts:[], openFilter:null,
+    loaded:this.initLoaded(), uploads:this.initUploads(), uploadYm:'2026-07',
+    matrixByMonth:this.initMatrices(), allocMonth:'2026-06',
+    depts:this.DEPTS.slice(),
+    presetName:'', selectedPreset:'기본 배분(월 공통)', newDept:'',
+    presets:[{name:'기본 배분(월 공통)',matrix:this.ALLOC.map(r=>r.slice())}]
+  };
+
+  fmt(n){return Number(n).toLocaleString('ko-KR',{minimumFractionDigits:1,maximumFractionDigits:1});}
+  buildMonths(){const out=[];[2024,2025,2026,2027].forEach(y=>{for(let mo=1;mo<=12;mo++)out.push({ym:`${y}-${String(mo).padStart(2,'0')}`,y,mo});});return out;}
+  buildData(){
+    const base=[13,6.6,4.3,9.3,1.7,24.2,16,10.4,19.5,29.6];
+    const seas=[0.95,0.92,0.98,1.03,1.06,1.04,1.05,1.02,1.0,1.04,0.97,1.07];
+    const yf=(y)=>({2024:0.84,2025:0.92,2026:1.0,2027:1.07}[y]??1.0);
+    const hash=(t,i)=>{const x=Math.sin(t*37.3+i*101.7+11.1)*10000;return (x-Math.floor(x))*2-1;};
+    return this.TYPES.map((_,t)=>this.MONTHS.map((m,i)=>{
+      let v=base[t]*seas[m.mo-1]*yf(m.y)*(1+hash(t,i)*0.07);
+      if(t===4){v=v-0.5;if(hash(t,i)>0.5)v=0;}
+      return Math.round(Math.max(0,v)*10)/10;
+    }));
+  }
+  initMatrices(){const o={};this.MONTHS.forEach(m=>{o[m.ym]=this.ALLOC.map(r=>r.slice());});return o;}
+  initLoaded(){return this.MONTHS.filter(m=>m.ym<='2026-06').map(m=>m.ym);}
+  rowsFor(ym){const i=this.MONTHS.findIndex(m=>m.ym===ym);if(i<0)return 0;const tons=this.DATA.reduce((s,r)=>s+r[i],0);return Math.round(tons*6+300);}
+  atFor(ym){const [y,mo]=ym.split('-').map(Number);const ny=mo===12?y+1:y,nm=mo===12?1:mo+1;return `${ny}-${String(nm).padStart(2,'0')}-05`;}
+  initUploads(){const o={};this.initLoaded().forEach(ym=>{o[ym]={rows:this.rowsFor(ym),at:this.atFor(ym)};});return o;}
+  clampYm(loaded,ym){if(!loaded.length)return ym;const mn=loaded[0],mx=loaded[loaded.length-1];return ym<mn?mn:(ym>mx?mx:ym);}
+
+  go=(s)=>this.setState({screen:s,openFilter:null});
+  setFrom=(e)=>{const v=e.target.value;this.setState(s=>({fromYm:v,toYm:v>s.toYm?v:s.toYm}));};
+  setTo=(e)=>{const v=e.target.value;this.setState(s=>({toYm:v,fromYm:v<s.fromYm?v:s.fromYm}));};
+  togglePanel=(k)=>this.setState(s=>({openFilter:s.openFilter===k?null:k}));
+  closeFilter=()=>this.setState({openFilter:null});
+  toggleSel=(kind,idx)=>this.setState(s=>{const a=s[kind].slice();const i=a.indexOf(idx);i>=0?a.splice(i,1):a.push(idx);return {[kind]:a};});
+  clearAll=()=>this.setState(s=>{const lo=s.loaded.slice().sort();return {selTypes:[],selCompanies:[],selDepts:[],fromYm:lo[0],toYm:lo[lo.length-1]};});
+
+  setAllocMonth=(e)=>this.setState({allocMonth:e.target.value});
+  shiftMonth=(d)=>this.setState(s=>{const lo=s.loaded.slice().sort();const idx=lo.indexOf(s.allocMonth);const ni=Math.max(0,Math.min(lo.length-1,idx+d));return {allocMonth:lo[ni]};});
+  prevMonth=()=>this.shiftMonth(-1);
+  nextMonth=()=>this.shiftMonth(1);
+  setUploadYm=(e)=>this.setState({uploadYm:e.target.value});
+  confirmUpload=()=>this.setState(s=>{const ym=s.uploadYm;const loaded=s.loaded.includes(ym)?s.loaded.slice():[...s.loaded,ym].sort();const uploads={...s.uploads,[ym]:{rows:this.rowsFor(ym),at:this.atFor(ym)}};const mx=loaded[loaded.length-1];const next=this.MONTHS.map(m=>m.ym).find(y=>!loaded.includes(y))||ym;return {loaded,uploads,toYm:mx,fromYm:this.clampYm(loaded,s.fromYm),uploadYm:next};});
+  deleteUpload=(ym)=>this.setState(s=>{if(s.loaded.length<=1)return{};const loaded=s.loaded.filter(y=>y!==ym).sort();const uploads={...s.uploads};delete uploads[ym];const mx=loaded[loaded.length-1];return {loaded,uploads,fromYm:this.clampYm(loaded,s.fromYm),toYm:this.clampYm(loaded,s.toYm),allocMonth:loaded.includes(s.allocMonth)?s.allocMonth:mx};});
+  reupload=(ym)=>this.setState({screen:'upload',uploadYm:ym,openFilter:null});
+  setCell=(e)=>{const i=+e.target.dataset.i,j=+e.target.dataset.j;let v=parseFloat(e.target.value);if(isNaN(v))v=0;v=Math.max(0,Math.min(100,v));this.setState(s=>{const o={...s.matrixByMonth};const m=o[s.allocMonth].map(r=>r.slice());m[i][j]=v;o[s.allocMonth]=m;return{matrixByMonth:o};});};
+  applyAll=()=>this.setState(s=>{const src=s.matrixByMonth[s.allocMonth];const o={};Object.keys(s.matrixByMonth).forEach(ym=>{o[ym]=src.map(r=>r.slice());});return {matrixByMonth:o};});
+  resetMatrix=()=>this.setState(s=>{const o={...s.matrixByMonth};const cols=s.depts.length;o[s.allocMonth]=this.ALLOC.map(r=>{const row=r.slice(0,cols);while(row.length<cols)row.push(0);return row;});return {matrixByMonth:o};});
+  setNewDept=(e)=>this.setState({newDept:e.target.value});
+  addDept=()=>{const n=this.state.newDept.trim();if(!n)return;this.setState(s=>{const o={};Object.keys(s.matrixByMonth).forEach(ym=>{o[ym]=s.matrixByMonth[ym].map(r=>[...r,0]);});return {depts:[...s.depts,n],matrixByMonth:o,newDept:''};});};
+  removeDept=(j)=>this.setState(s=>{if(s.depts.length<=1)return{};const o={};Object.keys(s.matrixByMonth).forEach(ym=>{o[ym]=s.matrixByMonth[ym].map(r=>r.filter((_,k)=>k!==j));});return {depts:s.depts.filter((_,k)=>k!==j),matrixByMonth:o};});
+  setPresetName=(e)=>this.setState({presetName:e.target.value});
+  savePreset=()=>{const name=(this.state.presetName.trim())||('배분안 '+(this.state.presets.length+1));this.setState(s=>({presets:[...s.presets.filter(p=>p.name!==name),{name,matrix:s.matrixByMonth[s.allocMonth].map(r=>r.slice())}],selectedPreset:name,presetName:''}));};
+  loadPreset=(e)=>{const name=e.target.value;const p=this.state.presets.find(x=>x.name===name);if(!p)return;this.setState(s=>{const o={...s.matrixByMonth};const cols=s.depts.length;o[s.allocMonth]=p.matrix.map(r=>{const row=r.slice(0,cols);while(row.length<cols)row.push(0);return row;});return {selectedPreset:name,matrixByMonth:o};});};
+
+  activeTypeIdx(){return this.state.selTypes.length?this.state.selTypes.slice().sort((a,b)=>a-b):this.TYPES.map((_,i)=>i);}
+  periodIdx(){
+    const {fromYm,toYm,loaded}=this.state;const a=fromYm<=toYm?fromYm:toYm,b=fromYm<=toYm?toYm:fromYm;
+    return this.MONTHS.map((m,i)=>i).filter(i=>{const ym=this.MONTHS[i].ym;return loaded.includes(ym)&&ym>=a&&ym<=b;});
+  }
+  periodLabel(pIdx){
+    if(!pIdx.length)return '데이터 없음';
+    const f=this.MONTHS[pIdx[0]],l=this.MONTHS[pIdx[pIdx.length-1]];
+    return f.ym===l.ym?`${f.ym} (단월)`:`${f.ym} ~ ${l.ym} (${pIdx.length}개월)`;
+  }
+
+  icon(key){const e=React.createElement;const s=(ch)=>e('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.7,strokeLinecap:'round',strokeLinejoin:'round'},ch);
+    switch(key){
+      case 'upload':return s([e('path',{key:1,d:'M12 16V4'}),e('polyline',{key:2,points:'7 9 12 4 17 9'}),e('path',{key:3,d:'M4 20h16'})]);
+      case 'history':return s([e('rect',{key:1,x:4,y:4,width:16,height:5,rx:1.5}),e('rect',{key:2,x:4,y:11,width:16,height:5,rx:1.5}),e('line',{key:3,x1:7,y1:19.5,x2:13,y2:19.5})]);
+      case 'dashboard':return s([e('rect',{key:1,x:4,y:4,width:7,height:7,rx:1.5}),e('rect',{key:2,x:13,y:4,width:7,height:7,rx:1.5}),e('rect',{key:3,x:4,y:13,width:7,height:7,rx:1.5}),e('rect',{key:4,x:13,y:13,width:7,height:7,rx:1.5})]);
+      case 'company':return s([e('line',{key:0,x1:4,y1:20,x2:20,y2:20}),e('rect',{key:1,x:5,y:12,width:3.4,height:6}),e('rect',{key:2,x:10.3,y:8,width:3.4,height:10}),e('rect',{key:3,x:15.6,y:14,width:3.4,height:4})]);
+      case 'type':return s([e('circle',{key:1,cx:12,cy:12,r:8}),e('path',{key:2,d:'M12 4a8 8 0 0 1 8 8h-8z',fill:'currentColor',stroke:'none',opacity:.35})]);
+      case 'alloc':return s([e('rect',{key:1,x:4,y:4,width:16,height:16,rx:2}),e('line',{key:2,x1:4,y1:10,x2:20,y2:10}),e('line',{key:3,x1:4,y1:15,x2:20,y2:15}),e('line',{key:4,x1:12,y1:10,x2:12,y2:20})]);
+      case 'dept':return s([e('circle',{key:1,cx:8,cy:8,r:3}),e('circle',{key:2,cx:16.5,cy:9,r:2.4}),e('path',{key:3,d:'M3 20c0-3 2.3-5 5-5s5 2 5 5'}),e('path',{key:4,d:'M14.5 20c0-2.2 1.4-4 3.4-4'})]);
+      case 'report':return s([e('path',{key:1,d:'M7 3h7l4 4v14H7z'}),e('line',{key:2,x1:10,y1:12,x2:15,y2:12}),e('line',{key:3,x1:10,y1:16,x2:15,y2:16})]);
+      case 'guide':return s([e('circle',{key:1,cx:12,cy:12,r:8}),e('path',{key:2,d:'M12 8v8M8 12h8'})]);
+      default:return s([e('circle',{key:1,cx:12,cy:12,r:8})]);
+    }
+  }
+  bigIcon(key){const e=React.createElement;return e('svg',{width:30,height:30,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.6,strokeLinecap:'round',strokeLinejoin:'round'},this.icon(key).props.children);}
+
+  lineSVG(pts,accent){
+    const e=React.createElement;const w=1140,h=270,pad={l:46,r:24,t:26,b:34};
+    const n=pts.length;const dense=n>14;
+    const iw=w-pad.l-pad.r,ih=h-pad.t-pad.b;const max=Math.max(...pts.map(p=>p.value),1);const top=Math.ceil(max/20)*20||20;
+    const X=i=>pad.l+iw*(n>1?i/(n-1):0.5);const Y=v=>pad.t+ih*(1-v/top);
+    const ch=[];const ng=4;
+    for(let g=0;g<=ng;g++){const gy=pad.t+ih*g/ng;const val=Math.round(top*(1-g/ng));
+      ch.push(e('line',{key:'gl'+g,x1:pad.l,x2:w-pad.r,y1:gy,y2:gy,stroke:'#EEF0F2',strokeWidth:1}));
+      ch.push(e('text',{key:'gt'+g,x:pad.l-9,y:gy+4,textAnchor:'end',fontSize:11,fill:'#AEB3BA'},val));
+    }
+    pts.forEach((p,i)=>{if(dense&&!(i===0||i===n-1||i%3===0))return;ch.push(e('text',{key:'xl'+i,x:X(i),y:h-11,textAnchor:'middle',fontSize:dense?10:11,fill:'#9CA1A8',fontWeight:600},p.label));});
+    const d=pts.map((p,i)=>`${i?'L':'M'}${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(' ');
+    ch.push(e('path',{key:'ln',d,fill:'none',stroke:accent,strokeWidth:2.4,strokeLinejoin:'round',strokeLinecap:'round'}));
+    pts.forEach((p,i)=>{ch.push(e('circle',{key:'c'+i,cx:X(i),cy:Y(p.value),r:dense?2.8:4.6,fill:'#fff',stroke:accent,strokeWidth:dense?2:2.6}));
+      if(!dense)ch.push(e('text',{key:'v'+i,x:X(i),y:Y(p.value)-13,textAnchor:'middle',fontSize:11.5,fontWeight:700,fill:'#2B2F36'},p.value.toFixed(1)));});
+    return e('svg',{viewBox:`0 0 ${w} ${h}`,width:'100%',style:{display:'block',height:'auto'}},ch);
+  }
+  donutSVG(data,accent){
+    const e=React.createElement;const size=170,r=62,cx=size/2,cy=size/2,sw=24,C=2*Math.PI*r;
+    const total=data.reduce((s,d)=>s+d.value,0)||1;const pal=[accent,accent+'CC',accent+'99',accent+'66','#3A3F47','#B8BDC4'];
+    let off=0;const arcs=data.map((d,i)=>{const len=C*(d.value/total);const el=e('circle',{key:i,cx,cy,r,fill:'none',stroke:pal[i%pal.length],strokeWidth:sw,strokeDasharray:`${len} ${C-len}`,strokeDashoffset:-off,transform:`rotate(-90 ${cx} ${cy})`,strokeLinecap:'butt'});off+=len;return el;});
+    return e('svg',{viewBox:`0 0 ${size} ${size}`,width:size,height:size,style:{display:'block'}},[
+      e('circle',{key:'bg',cx,cy,r,fill:'none',stroke:'#F0F1F3',strokeWidth:sw}),...arcs,
+      e('text',{key:'l',x:cx,y:cy-4,textAnchor:'middle',fontSize:12,fill:'#9CA1A8'},'처리업체'),
+      e('text',{key:'n',x:cx,y:cy+19,textAnchor:'middle',fontSize:22,fontWeight:800,fill:'#1B1E24'},data.length+'곳')
+    ]);
+  }
+  gaugeSVG(accent){
+    const e=React.createElement;const size=128,r=50,cx=size/2,cy=size/2,sw=13,C=2*Math.PI*r,pct=0.92;
+    return e('svg',{viewBox:`0 0 ${size} ${size}`,width:size,height:size,style:{display:'block'}},[
+      e('circle',{key:'bg',cx,cy,r,fill:'none',stroke:'#F0F1F3',strokeWidth:sw}),
+      e('circle',{key:'fg',cx,cy,r,fill:'none',stroke:accent,strokeWidth:sw,strokeLinecap:'round',strokeDasharray:`${C*pct} ${C}`,transform:`rotate(-90 ${cx} ${cy})`}),
+      e('text',{key:'n',x:cx,y:cy-2,textAnchor:'middle',fontSize:26,fontWeight:800,fill:'#1B1E24'},'92%'),
+      e('text',{key:'l',x:cx,y:cy+18,textAnchor:'middle',fontSize:10.5,fill:'#9CA1A8',fontWeight:600},'처리 진행률')
+    ]);
+  }
+
+  navItemStyle(active){
+    const accent=this.props.accentColor??'#F37021';
+    return active
+      ? {display:'flex',alignItems:'center',gap:'11px',padding:'10px 12px',borderRadius:'9px',cursor:'pointer',fontSize:'13px',fontWeight:700,color:'#fff',background:accent+'26',position:'relative',boxShadow:'inset 3px 0 0 '+accent}
+      : {display:'flex',alignItems:'center',gap:'11px',padding:'10px 12px',borderRadius:'9px',cursor:'pointer',fontSize:'13px',fontWeight:600,color:'#A7ACB4'};
+  }
+
+  renderVals(){
+    const accent=this.props.accentColor??'#F37021';
+    const cardPad=this.props.density==='컴팩트'?'15px':'22px';
+    const showSecondary=this.props.showSecondary!==false;
+    const sc=this.state.screen;
+    const isDashboard=sc==='dashboard',isAlloc=sc==='alloc',isSystem=sc==='system',isUpload=sc==='upload',isHistory=sc==='history';
+    const isPlaceholder=!!this.PLACEHOLDER[sc];
+
+    // nav
+    const navDef=[['dashboard','요약 대시보드'],['dept','부서별 분석'],['type','종류별 분석'],['company','업체별 분석'],['upload','데이터 업로드'],['history','누적 데이터 관리'],['alloc','발생 부서 배분'],['report','리포트/내보내기']];
+    const built=['dashboard','alloc','upload','history'];
+    const navItems=navDef.map(([k,label])=>({key:k,label,icon:this.icon(k),soon:!built.includes(k),onClick:()=>this.go(k),style:this.navItemStyle(sc===k)}));
+
+    const meta={system:{title:'디자인 시스템',sub:'폐기물 실적 분석 도구 · 비주얼 가이드'},dashboard:{title:'요약 대시보드',sub:'조회 조건 기준 위탁량 분석'},alloc:{title:'발생 부서 배분 비율 입력',sub:'월별 · 폐기물 종류 × 부서 배분(%) · 행 합계 100%'},upload:{title:'데이터 업로드',sub:'월별 엑셀 업로드 → 누적 반영'},history:{title:'누적 데이터 관리',sub:'업로드 이력 · 누적 건수 · 기간 범위'}};
+    const m=meta[sc]||{title:(this.PLACEHOLDER[sc]||{}).title||'',sub:'이번 디자인 범위 외 화면 (예정)'};
+
+    // ---- dashboard calc ----
+    const pIdx=this.periodIdx();const tIdx=this.activeTypeIdx();
+    let total=0;pIdx.forEach(mi=>tIdx.forEach(t=>total+=this.DATA[t][mi]));
+    const grand=this.COMPANIES.reduce((s,c)=>s+c.total,0);
+    let companyFactor=1;
+    if(this.state.selCompanies.length){const sel=this.state.selCompanies.reduce((s,i)=>s+this.COMPANIES[i].total,0);companyFactor=sel/grand;}
+    total=total*companyFactor;
+    const companyCount=this.state.selCompanies.length||this.COMPANIES.length;
+    const typeCount=tIdx.length;
+    const avgLabel=this.fmt(total/(pIdx.length||1));
+
+    const crossYear=pIdx.length?this.MONTHS[pIdx[0]].y!==this.MONTHS[pIdx[pIdx.length-1]].y:false;
+    const trend=pIdx.map(mi=>{const m=this.MONTHS[mi];const label=crossYear?`${String(m.y).slice(2)}.${String(m.mo).padStart(2,'0')}`:`${m.mo}월`;return {label,value:tIdx.reduce((s,t)=>s+this.DATA[t][mi],0)*companyFactor};});
+    const trendChart=this.lineSVG(trend,accent);
+    const trendRange=pIdx.length?`${this.MONTHS[pIdx[0]].ym} ~ ${this.MONTHS[pIdx[pIdx.length-1]].ym} · 단위 t`:'단위 t';
+
+    const isLoadedIdx=(mi)=>mi>=0&&mi<this.MONTHS.length&&this.state.loaded.includes(this.MONTHS[mi].ym);
+    const sumM=(mi)=> !isLoadedIdx(mi)?null:tIdx.reduce((s,t)=>s+this.DATA[t][mi],0)*companyFactor;
+    const sumRange=(a,b)=>{let v=0;for(let i=a;i<=b;i++){if(!isLoadedIdx(i))return null;v+=tIdx.reduce((s,t)=>s+this.DATA[t][i],0);}return v*companyFactor;};
+    const lastIdx=pIdx.length?pIdx[pIdx.length-1]:this.MONTHS.length-1;
+    const lm=this.MONTHS[lastIdx];
+    const mkCmp=(label,cur,prev,cmp)=>{
+      if(cur==null||prev==null)return {label,cmp:'이전 기간 데이터 없음',color:'#9CA1A8',arrow:'–',arrowStyle:'font-size:13px;color:#C7CCD3',pctLabel:'—',deltaLabel:'비교 불가'};
+      const d=cur-prev;const pct=prev?d/prev*100:0;const up=d>=0;const color=up?'#E5484D':'#2F6FEB';
+      return {label,cmp,color,arrow:up?'▲':'▼',arrowStyle:`font-size:13px;color:${color}`,pctLabel:(up?'+':'−')+Math.abs(pct).toFixed(1)+'%',deltaLabel:(up?'+':'−')+this.fmt(Math.abs(d))+' t'};};
+    const compareCards=[
+      mkCmp('전월 대비',sumM(lastIdx),sumM(lastIdx-1),`${lm.ym} vs 전월`),
+      mkCmp('전분기 대비',sumRange(lastIdx-2,lastIdx),sumRange(lastIdx-5,lastIdx-3),'최근 3개월 vs 직전 3개월'),
+      mkCmp('전년 동기 대비',sumM(lastIdx),sumM(lastIdx-12),`${lm.ym} vs 전년 동월`)
+    ];
+
+    // type bars (period + type filter)
+    const tag=(cat)=>cat==='지정'?'background:#FDEEE6;color:'+accent+';border-radius:5px;padding:1px 7px;font-size:10px;font-weight:700':'background:#EEF1F4;color:#7C828A;border-radius:5px;padding:1px 7px;font-size:10px;font-weight:700';
+    const typeVals=tIdx.map(t=>({label:this.TYPES[t].name,cat:this.TYPES[t].cat,value:pIdx.reduce((s,mi)=>s+this.DATA[t][mi],0)*companyFactor})).sort((a,b)=>b.value-a.value);
+    const tvTotal=typeVals.reduce((s,d)=>s+d.value,0)||1;const tvMax=Math.max(...typeVals.map(d=>d.value),1);
+    const typeBars=typeVals.slice(0,7).map(d=>({label:d.label,cat:d.cat,valueLabel:this.fmt(d.value),pctLabel:(d.value/tvTotal*100).toFixed(0)+'%',w:(d.value/tvMax*100).toFixed(1)+'%',fill:d.cat==='지정'?accent:accent+'80',tagStyle:tag(d.cat),dot:`width:8px;height:8px;border-radius:3px;flex:none;background:${d.cat==='지정'?accent:accent+'80'}`}));
+
+    // company donut
+    const compSel=this.state.selCompanies.length?this.state.selCompanies.map(i=>this.COMPANIES[i]):this.COMPANIES;
+    const cTotal=compSel.reduce((s,c)=>s+c.total,0)||1;
+    const companyDonut=this.donutSVG(compSel.map(c=>({value:c.total})),accent);
+    const pal=[accent,accent+'CC',accent+'99',accent+'66','#3A3F47','#B8BDC4'];
+    const companyLegend=compSel.map((c,i)=>({label:c.name,pctLabel:(c.total/cTotal*100).toFixed(1)+'%',color:pal[i%pal.length]}));
+
+    // dept bars from per-month matrices (period + type filtered)
+    let deptVals=this.state.depts.map((d,j)=>{let v=0;pIdx.forEach(mi=>{const mat=this.state.matrixByMonth[this.MONTHS[mi].ym]||this.ALLOC;tIdx.forEach(t=>{v+=this.DATA[t][mi]*((mat[t]?.[j]??0)/100);});});return {label:d,j,value:v*companyFactor};});
+    if(this.state.selDepts.length)deptVals=deptVals.filter(d=>this.state.selDepts.includes(d.j));
+    const dTotal=deptVals.reduce((s,d)=>s+d.value,0)||1;const dMax=Math.max(...deptVals.map(d=>d.value),1);
+    deptVals.sort((a,b)=>b.value-a.value);
+    const deptBars=deptVals.map(d=>({label:d.label,valueLabel:this.fmt(d.value),pctLabel:(d.value/dTotal*100).toFixed(0)+'%',w:(d.value/dMax*100).toFixed(1)+'%'}));
+
+    // filter controls
+    const periodLabel=this.periodLabel(pIdx);
+    const loadedSorted=this.state.loaded.slice().sort();
+    const fromYm=this.state.fromYm;const toYm=this.state.toYm;
+    const coverageLabel=loadedSorted.length?`누적 데이터 ${loadedSorted[0]} ~ ${loadedSorted[loadedSorted.length-1]}`:'누적 데이터 없음';
+
+    const fbtn=(active)=>`display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:#2B2F36;background:#fff;border:1px solid ${active?accent:'#E2E5E9'};border-radius:9px;padding:8px 13px;cursor:pointer`;
+    const typeOptions=this.TYPES.map((t,i)=>({label:t.name,cat:t.cat,checked:this.state.selTypes.includes(i),unchecked:!this.state.selTypes.includes(i),onClick:()=>this.toggleSel('selTypes',i),tagStyle:tag(t.cat)}));
+    const companyOptions=this.COMPANIES.map((c,i)=>({label:c.name,checked:this.state.selCompanies.includes(i),unchecked:!this.state.selCompanies.includes(i),onClick:()=>this.toggleSel('selCompanies',i)}));
+    const deptOptions=this.state.depts.map((d,i)=>({label:d,checked:this.state.selDepts.includes(i),unchecked:!this.state.selDepts.includes(i),onClick:()=>this.toggleSel('selDepts',i)}));
+
+    // allocation (per selected month)
+    const curMatrix=this.state.matrixByMonth[this.state.allocMonth]||this.ALLOC;
+    const okMonths=loadedSorted.filter(ym=>(this.state.matrixByMonth[ym]||this.ALLOC).every(r=>Math.round(r.reduce((a,b)=>a+(+b||0),0))===100)).length;
+    const monthOkSummary=`전체 ${loadedSorted.length}개월 중 ${okMonths}개월 100% 정합`;
+    const monthOptions=loadedSorted.map(ym=>({ym,label:ym}));
+    const allocRows=curMatrix.map((row,i)=>{const totalR=row.reduce((a,b)=>a+(+b||0),0);const ok=Math.round(totalR)===100;
+      return {i,type:this.TYPES[i].name,cat:this.TYPES[i].cat,tagStyle:tag(this.TYPES[i].cat),cells:row.map((v,j)=>({i,j,v})),totalLabel:Math.round(totalR)+'%',
+        totalStyle:ok?'font-size:12.5px;font-weight:800;color:#1F8A5B;background:#E7F5EE;border-radius:7px;padding:5px 10px':'font-size:12.5px;font-weight:800;color:#E5484D;background:#FCEAEA;border-radius:7px;padding:5px 10px'};});
+    const invalid=allocRows.filter(r=>r.totalLabel!=='100%').length;
+    const allocDepts=this.state.depts.map((d,j)=>({name:d,onRemove:()=>this.removeDept(j)}));
+    const validBadgeStyle=invalid===0?'background:#E7F5EE;color:#1F8A5B;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:800;white-space:nowrap':'background:#FCEAEA;color:#E5484D;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:800;white-space:nowrap';
+    const validBadgeText=invalid===0?'✓ 전체 100% 정합':invalid+'개 행 합계 오류';
+    const presetOptions=this.state.presets.map(p=>({name:p.name}));
+
+    // ---- 데이터 업로드 / 누적 데이터 관리 ----
+    const k=(n)=>Number(n).toLocaleString('ko-KR');
+    const uploadYm=this.state.uploadYm;
+    const uploadOptions=this.MONTHS.map(m=>({ym:m.ym,label:this.state.loaded.includes(m.ym)?`${m.ym} (누적됨)`:m.ym}));
+    const upLoaded=this.state.loaded.includes(uploadYm);
+    const upRows=this.rowsFor(uploadYm);
+    const curTotalRows=loadedSorted.reduce((s,ym)=>s+((this.state.uploads[ym]||{}).rows||0),0);
+    const uploadInfo={ym:uploadYm,isLoaded:upLoaded,rowsLabel:k(upRows),newRowsLabel:k(upLoaded?0:upRows),curTotalLabel:k(curTotalRows),cumTotalLabel:k(curTotalRows+(upLoaded?0:upRows)),statusText:upLoaded?'⚠ 이미 누적된 월입니다 — 누적 반영 시 기존 데이터를 덮어씁니다.':'신규 월입니다 — 누적 데이터에 새로 추가됩니다.'};
+    const uploadsList=loadedSorted.slice().reverse().map(ym=>{const u=this.state.uploads[ym]||{};return {ym,at:u.at||'-',rows:k(u.rows||0),onDelete:()=>this.deleteUpload(ym),onReupload:()=>this.reupload(ym)};});
+    const histTotalRows=k(curTotalRows);
+    const histRange=loadedSorted.length?`${loadedSorted[0]} ~ ${loadedSorted[loadedSorted.length-1]}`:'-';
+    const histCount=loadedSorted.length;
+
+    const ph=this.PLACEHOLDER[sc]||{};
+
+    return {
+      isUpload,isHistory,coverageLabel,
+      uploadYm,uploadOptions,setUploadYm:this.setUploadYm,confirmUpload:this.confirmUpload,uploadInfo,
+      uploadsList,histTotalRows,histRange,histCount,
+      accent,cardPad,showSecondary,
+      navItems,goSystem:()=>this.go('system'),goDashboard:()=>this.go('dashboard'),
+      systemNavStyle:this.navItemStyle(isSystem),guideIcon:this.icon('guide'),
+      title:m.title,sub:m.sub,periodLabel,
+      isDashboard,isAlloc,isSystem,isPlaceholder,
+      totalLabel:this.fmt(total),companyCount,typeCount,avgLabel,compareCards,trendChart,
+      typeBars,companyDonut,companyLegend,deptBars,
+      fromYm,toYm,setFrom:this.setFrom,setTo:this.setTo,trendRange,
+      toggleType:()=>this.togglePanel('type'),toggleCompany:()=>this.togglePanel('company'),toggleDept:()=>this.togglePanel('dept'),
+      openType:this.state.openFilter==='type',openCompany:this.state.openFilter==='company',openDept:this.state.openFilter==='dept',
+      anyFilterOpen:!!this.state.openFilter,closeFilter:this.closeFilter,clearAll:this.clearAll,
+      typeBtnStyle:fbtn(this.state.openFilter==='type'||this.state.selTypes.length),
+      companyBtnStyle:fbtn(this.state.openFilter==='company'||this.state.selCompanies.length),
+      deptBtnStyle:fbtn(this.state.openFilter==='dept'||this.state.selDepts.length),
+      typeSelLabel:this.state.selTypes.length?this.state.selTypes.length+'개':'전체',
+      companySelLabel:this.state.selCompanies.length?this.state.selCompanies.length+'개':'전체',
+      deptSelLabel:this.state.selDepts.length?this.state.selDepts.length+'개':'전체',
+      typeOptions,companyOptions,deptOptions,
+      allocRows,allocDepts,validBadgeStyle,validBadgeText,setCell:this.setCell,
+      allocMonth:this.state.allocMonth,monthOptions,setAllocMonth:this.setAllocMonth,prevMonth:this.prevMonth,nextMonth:this.nextMonth,applyAll:this.applyAll,monthOkSummary,
+      presetOptions,selectedPreset:this.state.selectedPreset,loadPreset:this.loadPreset,
+      presetName:this.state.presetName,setPresetName:this.setPresetName,savePreset:this.savePreset,resetMatrix:this.resetMatrix,
+      newDept:this.state.newDept,setNewDept:this.setNewDept,addDept:this.addDept,
+      palette:[{name:'한화 오렌지 (액센트)',hex:accent},{name:'차콜 (내비)',hex:'#16181D'},{name:'잉크',hex:'#1B1E24'},{name:'서피스',hex:'#F5F6F8'},{name:'보더',hex:'#E8EAED'},{name:'화이트',hex:'#FFFFFF'}],
+      gaugeChart:this.gaugeSVG(accent),
+      placeholderTitle:ph.title,placeholderDesc:ph.desc,placeholderIcon:this.bigIcon(sc)
+    };
+  }
+}
+</script>
+</body>
+</html>
