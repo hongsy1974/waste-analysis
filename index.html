@@ -191,6 +191,23 @@ async function fsLoad(){
     if(s.companies?.length)companies=s.companies;
     if(s.presets?.length)presets=s.presets;
   }
+  // Reconstruct types & companies from monthData if missing from settings
+  if(!types.length||!companies.length){
+    const typeMap={};const companySet=new Set();
+    Object.values(monthData).forEach(({typeCompanyData:tcd})=>{
+      Object.entries(tcd||{}).forEach(([typeName,byCompany])=>{
+        if(!typeMap[typeName])typeMap[typeName]=guessCategory(typeName);
+        Object.keys(byCompany||{}).forEach(cn=>{if(cn)companySet.add(cn);});
+      });
+    });
+    if(!types.length&&Object.keys(typeMap).length)types=Object.entries(typeMap).map(([name,cat])=>({name,cat}));
+    if(!companies.length&&companySet.size)companies=[...companySet].map(name=>({name}));
+    // Persist reconstructed data back to settings so next load is fast
+    if(types.length||companies.length){
+      const{doc:d2,setDoc:sd}=FS();
+      sd(d2(db,'settings','main'),{depts,presets,types,companies}).catch(()=>{});
+    }
+  }
   return{monthData,uploads,loaded,matrixByMonth,depts,types,companies,presets};
 }
 async function fsSaveMonth(ym,typeCompanyData,rows,at){
