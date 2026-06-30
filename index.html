@@ -593,24 +593,32 @@ function App(){
     return f.ym===l.ym?`${f.ym} (단월)`:`${f.ym} ~ ${l.ym} (${periodIdx.length}개월)`;
   },[periodIdx]);
 
-  // Core data accessor: sum tonnage for a month index, filtered by type and company selections
+  // Core data accessor: sum tonnage for a month index, filtered by type/company/dept selections
   const sumMi=useCallback((mi)=>{
     if(mi<0||mi>=MONTHS.length)return null;
     const ym=MONTHS[mi].ym;
     if(!loaded.includes(ym))return null;
     const tcd=monthData[ym]?.typeCompanyData||{};
+    const mat=selDepts.length?(matrixByMonth[ym]||defaultMatrix(types.length,depts.length)):null;
     let sum=0;
     activeTypeIdx.forEach(t=>{
       const typeName=types[t]?.name;if(!typeName)return;
       const byCompany=tcd[typeName]||{};
+      let typeTotal;
       if(selCompanies.length){
-        selCompanies.forEach(ci=>{sum+=byCompany[companies[ci]?.name]||0;});
+        typeTotal=selCompanies.reduce((s,ci)=>s+(byCompany[companies[ci]?.name]||0),0);
       }else{
-        sum+=Object.values(byCompany).reduce((s,v)=>s+v,0);
+        typeTotal=Object.values(byCompany).reduce((s,v)=>s+v,0);
+      }
+      if(mat){
+        const fraction=selDepts.reduce((s,j)=>s+((mat[t]?.[j]??0)/100),0);
+        sum+=typeTotal*fraction;
+      }else{
+        sum+=typeTotal;
       }
     });
     return sum;
-  },[loaded,monthData,activeTypeIdx,types,selCompanies,companies]);
+  },[loaded,monthData,matrixByMonth,activeTypeIdx,types,selCompanies,companies,selDepts,depts]);
 
   const dashboardData=useMemo(()=>{
     const sumRange=(a,b)=>{let v=0,has=false;for(let i=a;i<=b;i++){const s=sumMi(i);if(s!==null){v+=s;has=true;}}return has?v:null;};
