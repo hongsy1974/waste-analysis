@@ -370,6 +370,23 @@ function App(){
     else window.addEventListener('firebase-ready',load,{once:true});
   },[]);
 
+  // Safety net: if types/companies are still empty after monthData loads, reconstruct from stored data
+  useEffect(()=>{
+    if(!Object.keys(monthData).length)return;
+    const needTypes=!typesRef.current.length;
+    const needCompanies=!companiesRef.current.length;
+    if(!needTypes&&!needCompanies)return;
+    const typeMap={};const companySet=new Set();
+    Object.values(monthData).forEach(({typeCompanyData:tcd})=>{
+      Object.entries(tcd||{}).forEach(([typeName,byCompany])=>{
+        if(typeName&&!typeMap[typeName])typeMap[typeName]=guessCategory(typeName);
+        Object.keys(byCompany||{}).forEach(cn=>{if(cn)companySet.add(cn);});
+      });
+    });
+    if(needTypes&&Object.keys(typeMap).length)setTypes(Object.entries(typeMap).map(([name,cat])=>({name,cat})));
+    if(needCompanies&&companySet.size)setCompanies([...companySet].map(name=>({name})));
+  },[monthData]);
+
   const go=useCallback(s=>{setScreen(s);setOpenFilter(null);},[]);
   const togglePanel=useCallback(k=>setOpenFilter(p=>p===k?null:k),[]);
   const closeFilter=useCallback(()=>setOpenFilter(null),[]);
