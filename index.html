@@ -527,6 +527,14 @@ function App(){
     setMatrixByMonth(p=>{const o={...p};const m=o[allocMonth]?o[allocMonth].map(r=>r.slice()):defaultMatrix(types.length,depts.length);m[i][j]=v;o[allocMonth]=m;return o;});
   };
 
+  const setTonnageCell=e=>{
+    const i=+e.target.dataset.i,j=+e.target.dataset.j;
+    const typeTotal=parseFloat(e.target.dataset.total)||0;
+    let tonnage=parseFloat(e.target.value);if(isNaN(tonnage))tonnage=0;tonnage=Math.max(0,tonnage);
+    const newPct=typeTotal>0?Math.min(100,tonnage/typeTotal*100):0;
+    setMatrixByMonth(p=>{const o={...p};const m=o[allocMonth]?o[allocMonth].map(r=>r.slice()):defaultMatrix(types.length,depts.length);m[i][j]=newPct;o[allocMonth]=m;return o;});
+  };
+
   const saveMatrixOnBlur=useCallback(async()=>{
     const matrix=matrixRef.current[allocMonth];
     if(!matrix)return;
@@ -707,23 +715,44 @@ function App(){
 
   const curMatrix=allocMonth?(matrixByMonth[allocMonth]||defaultMatrix(types.length,depts.length)):defaultMatrix(types.length,depts.length);
 
-  // okMonths: a month is valid when all of its own types sum to 100%
+  // okMonths: a month is valid when all of its own types' dept tonnage sums equal the type's monthly total
   const okMonths=useMemo(()=>loadedSorted.filter(ym=>{
     const present=new Set(Object.keys(monthData[ym]?.typeCompanyData||{}));
     const idxs=types.map((_,i)=>i).filter(i=>present.has(types[i]?.name));
     if(!idxs.length)return false;
     const mat=matrixByMonth[ym]||defaultMatrix(types.length,depts.length);
-    return idxs.every(i=>Math.round((mat[i]||[]).reduce((a,b)=>a+(+b||0),0))===100);
+    const tcd=monthData[ym]?.typeCompanyData||{};
+    return idxs.every(i=>{
+      const typeName=types[i]?.name;
+      const byCompany=tcd[typeName]||{};
+      const typeTotal=Object.values(byCompany).reduce((s,v)=>s+v,0);
+      const row=mat[i]||[];
+      if(typeTotal>0){const deptSum=row.reduce((s,v)=>s+(+v||0)/100*typeTotal,0);return Math.abs(deptSum-typeTotal)<0.05;}
+      return Math.round(row.reduce((a,b)=>a+(+b||0),0))===100;
+    });
   }).length,[loadedSorted,matrixByMonth,types,depts,monthData]);
 
   const allocRows=allocMonthTypeIndices.map(i=>{
     const row=curMatrix[i]||new Array(depts.length).fill(0);
     const type=types[i]||{name:`폐기물 ${i+1}`,cat:'일반'};
-    const tot=row.reduce((a,b)=>a+(+b||0),0),ok=Math.round(tot)===100;
-    return{i,type:type.name,cat:type.cat,tagStyle:tagStyle(type.cat),cells:row.map((v,j)=>({i,j,v})),totalLabel:Math.round(tot)+'%',
-      totalStyle:ok?{fontSize:'12.5px',fontWeight:800,color:'#1F8A5B',background:'#E7F5EE',borderRadius:'7px',padding:'5px 10px'}:{fontSize:'12.5px',fontWeight:800,color:'#E5484D',background:'#FCEAEA',borderRadius:'7px',padding:'5px 10px'}};
+    const tcd=monthData[allocMonth]?.typeCompanyData||{};
+    const typeName=types[i]?.name;
+    const byCompany=tcd[typeName]||{};
+    const typeTotal=Object.values(byCompany).reduce((s,v)=>s+v,0);
+    const pctSum=row.reduce((a,b)=>a+(+b||0),0);
+    const tonnageCells=row.map((v,j)=>({i,j,pct:+v||0,tonnage:typeTotal>0?(+v||0)/100*typeTotal:0}));
+    const deptTonnageSum=tonnageCells.reduce((s,c)=>s+c.tonnage,0);
+    const ok=typeTotal>0?Math.abs(deptTonnageSum-typeTotal)<0.05:Math.round(pctSum)===100;
+    const tonnageLabel=typeTotal>0?`${fmt(deptTonnageSum)} / ${fmt(typeTotal)} t`:`${Math.round(pctSum)}%`;
+    return{i,type:type.name,cat:type.cat,tagStyle:tagStyle(type.cat),cells:row.map((v,j)=>({i,j,v})),
+      tonnageCells,typeTotal,ok,
+      pctLabel:Math.round(pctSum)+'%',
+      pctLabelStyle:{fontSize:'11.5px',fontWeight:600,color:'#9CA1A8'},
+      tonnageLabel,
+      tonnageLabelStyle:ok?{fontSize:'12.5px',fontWeight:800,color:'#1F8A5B',background:'#E7F5EE',borderRadius:'7px',padding:'5px 10px'}:{fontSize:'12.5px',fontWeight:800,color:'#E5484D',background:'#FCEAEA',borderRadius:'7px',padding:'5px 10px'}
+    };
   });
-  const invalid=allocRows.filter(r=>r.totalLabel!=='100%').length;
+  const invalid=allocRows.filter(r=>!r.ok).length;
 
   // ---- Upload derived ----
   const curTotalRows=loadedSorted.reduce((s,ym)=>s+(uploads[ym]||{}).rows||0,0);
@@ -982,9 +1011,9 @@ function App(){
                     </div>
                     <div style={{flex:1,minWidth:'300px',background:'#fff',border:'1px solid #E8EAED',borderRadius:'14px',padding:'13px 18px',boxShadow:'0 1px 2px rgba(16,18,23,.04)',display:'flex',alignItems:'center',gap:'14px'}}>
                       <div style={invalid===0?{background:'#E7F5EE',color:'#1F8A5B',borderRadius:'10px',padding:'9px 14px',fontSize:'13px',fontWeight:800,whiteSpace:'nowrap'}:{background:'#FCEAEA',color:'#E5484D',borderRadius:'10px',padding:'9px 14px',fontSize:'13px',fontWeight:800,whiteSpace:'nowrap'}}>
-                        {invalid===0?'✓ 전체 100% 정합':invalid+'개 행 합계 오류'}
+                        {invalid===0?'✓ 전체 정합':invalid+'개 행 합계 오류'}
                       </div>
-                      <div style={{fontSize:'12px',color:'#6B717A',lineHeight:1.5}}>선택한 월의 <b style={{color:'#3B4048'}}>종류(행)별 합계가 100%</b>여야 합니다 · <b style={{color:'#3B4048'}}>전체 {loadedSorted.length}개월 중 {okMonths}개월 100% 정합</b></div>
+                      <div style={{fontSize:'12px',color:'#6B717A',lineHeight:1.5}}>종류별 부서 <b style={{color:'#3B4048'}}>위탁량 합계 = 해당 월 총 위탁량</b>이어야 합니다 · <b style={{color:'#3B4048'}}>전체 {loadedSorted.length}개월 중 {okMonths}개월 정합</b></div>
                     </div>
                     <div style={{display:'flex',gap:'9px',alignItems:'center',background:'#fff',border:'1px solid #E8EAED',borderRadius:'14px',padding:'12px 16px',boxShadow:'0 1px 2px rgba(16,18,23,.04)'}}>
                       <span style={{fontSize:'11.5px',color:'#9CA1A8',fontWeight:700}}>프리셋</span>
@@ -1009,15 +1038,27 @@ function App(){
                           </tr>
                         </thead>
                         <tbody>
-                          {allocRows.map(r=>(<tr key={r.i} className="alloc-row">
-                            <td style={{padding:'10px 18px',borderBottom:'1px solid #F2F3F5',position:'sticky',left:0,background:'#fff',fontWeight:600,color:'#2B2F36'}}>
-                              <span style={{display:'flex',alignItems:'center',gap:'8px'}}>{r.type}<span style={r.tagStyle}>{r.cat}</span></span>
-                            </td>
-                            {r.cells.map(c=>(<td key={c.j} style={{padding:'6px',borderBottom:'1px solid #F2F3F5',borderLeft:'1px solid #F7F8F9'}}>
-                              <input type="number" defaultValue={c.v} key={`${allocMonth}-${c.i}-${c.j}`} data-i={c.i} data-j={c.j} onChange={setCell} onBlur={saveMatrixOnBlur} className="cell-input" style={{width:'100%',textAlign:'center',fontFamily:'inherit',fontSize:'13px',fontWeight:600,color:'#2B2F36',border:'1px solid #EBEDEF',borderRadius:'7px',padding:'8px 4px',background:'#FBFBFC'}}/>
-                            </td>))}
-                            <td style={{padding:'8px 14px',borderBottom:'1px solid #F2F3F5',borderLeft:'1px solid #E8EAED',textAlign:'center'}}><span style={r.totalStyle}>{r.totalLabel}</span></td>
-                          </tr>))}
+                          {allocRows.map(r=>(
+                            <React.Fragment key={r.i}>
+                              <tr className="alloc-row">
+                                <td style={{padding:'10px 18px 4px',borderBottom:'none',position:'sticky',left:0,background:'#fff',fontWeight:600,color:'#2B2F36'}}>
+                                  <span style={{display:'flex',alignItems:'center',gap:'8px'}}>{r.type}<span style={r.tagStyle}>{r.cat}</span></span>
+                                  {r.typeTotal>0&&<div style={{fontSize:'10.5px',color:'#AEB3BA',marginTop:'2px'}}>총 {fmt(r.typeTotal)} t</div>}
+                                </td>
+                                {r.cells.map(c=>(<td key={c.j} style={{padding:'6px 6px 3px',borderBottom:'none',borderLeft:'1px solid #F7F8F9'}}>
+                                  <input type="number" defaultValue={c.v} key={`pct-${allocMonth}-${c.i}-${c.j}`} data-i={c.i} data-j={c.j} onChange={setCell} onBlur={saveMatrixOnBlur} className="cell-input" style={{width:'100%',textAlign:'center',fontFamily:'inherit',fontSize:'13px',fontWeight:600,color:'#2B2F36',border:'1px solid #EBEDEF',borderRadius:'7px',padding:'8px 4px',background:'#FBFBFC'}}/>
+                                </td>))}
+                                <td style={{padding:'6px 14px 3px',borderBottom:'none',borderLeft:'1px solid #E8EAED',textAlign:'center'}}><span style={r.pctLabelStyle}>{r.pctLabel}</span></td>
+                              </tr>
+                              <tr className="alloc-row">
+                                <td style={{padding:'3px 18px 10px',borderBottom:'1px solid #F2F3F5',position:'sticky',left:0,background:'#F9FAFB',fontSize:'11px',fontWeight:600,color:'#9CA1A8'}}>위탁량 (t)</td>
+                                {r.tonnageCells.map(c=>(<td key={c.j} style={{padding:'3px 6px 8px',borderBottom:'1px solid #F2F3F5',borderLeft:'1px solid #F7F8F9',background:'#F9FAFB'}}>
+                                  <input type="number" defaultValue={c.tonnage.toFixed(3)} key={`ton-${allocMonth}-${c.i}-${c.j}`} data-i={c.i} data-j={c.j} data-total={r.typeTotal} onChange={setTonnageCell} onBlur={saveMatrixOnBlur} className="cell-input" style={{width:'100%',textAlign:'center',fontFamily:'inherit',fontSize:'12px',fontWeight:600,color:'#555B63',border:'1px solid #EBEDEF',borderRadius:'6px',padding:'6px 4px',background:'#F5F6F8'}}/>
+                                </td>))}
+                                <td style={{padding:'3px 14px 8px',borderBottom:'1px solid #F2F3F5',borderLeft:'1px solid #E8EAED',background:'#F9FAFB',textAlign:'center'}}><span style={r.tonnageLabelStyle}>{r.tonnageLabel}</span></td>
+                              </tr>
+                            </React.Fragment>
+                          ))}
                         </tbody>
                       </table>
                     </div>
